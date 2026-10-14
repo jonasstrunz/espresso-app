@@ -1,0 +1,8 @@
+{
+  "appId": "com.espressostudio.app",
+  "appName": "Espresso Studio",
+  "webDir": "out",
+  "server": {
+    "androidScheme": "https"
+  }
+}
