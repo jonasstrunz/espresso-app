@@ -96,7 +96,7 @@ Set these in **Repository Settings -> Secrets and variables -> Actions**:
 | Secret Name | Description | Where to find |
 | :--- | :--- | :--- |
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase Cloud project URL | Supabase Dashboard -> Project Settings -> API |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public `anon` API key | Supabase Dashboard -> Project Settings -> API |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase Publishable API key (`sb_publishable_...`) | Supabase Dashboard -> Project Settings -> API (API Keys) |
 | `SUPABASE_ACCESS_TOKEN` | Personal Access Token for CLI | [supabase.com/account/tokens](https://supabase.com/account/tokens) |
 | `SUPABASE_PROJECT_ID` | Project Reference ID (e.g. `abcdefghijklm`) | Supabase Dashboard -> Project Settings -> General |
 | `SUPABASE_DB_PASSWORD` | Database password set at creation | Supabase project creation |
