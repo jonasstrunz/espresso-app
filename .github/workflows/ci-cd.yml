@@ -76,7 +76,19 @@ jobs:
           name: web-dist
           path: out/
 
-      - name: Deploy to VM via SSH / SCP
+      - name: Deploy to VM via native SSH / SCP
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VM_SSH_HOST }}
+          username: ${{ secrets.VM_SSH_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          port: ${{ secrets.VM_SSH_PORT || 22 }}
+          script: |
+            TARGET="${{ secrets.VM_DEPLOY_PATH || '/var/www/espresso-app' }}"
+            sudo mkdir -p "$TARGET" || mkdir -p "$TARGET"
+            sudo chown -R ${{ secrets.VM_SSH_USER }} "$TARGET" 2>/dev/null || true
+
+      - name: Copy files to VM
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.VM_SSH_HOST }}
@@ -86,5 +98,6 @@ jobs:
           source: "out/*"
           target: ${{ secrets.VM_DEPLOY_PATH || '/var/www/espresso-app' }}
           strip_components: 1
-          rm: true
+          overwrite: true
+
 
