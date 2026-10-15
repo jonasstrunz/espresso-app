@@ -76,15 +76,15 @@ jobs:
           name: web-dist
           path: out/
 
-      - name: Deploy to VM via rsync over SSH
-        uses: easingthemes/ssh-deploy@v5.1.0
+      - name: Deploy to VM via SSH / SCP
+        uses: appleboy/scp-action@v0.1.7
         with:
-          SSH_PRIVATE_KEY: ${{ secrets.VM_SSH_KEY }}
-          ARGS: "-rlgoDzvc -i --delete"
-          SOURCE: "out/"
-          REMOTE_HOST: ${{ secrets.VM_SSH_HOST }}
-          REMOTE_USER: ${{ secrets.VM_SSH_USER }}
-          REMOTE_PORT: ${{ secrets.VM_SSH_PORT || '22' }}
-          TARGET: ${{ secrets.VM_DEPLOY_PATH || '/var/www/espresso-app' }}
-          SCRIPT_AFTER: |
-            echo "Deployment completed successfully on $(hostname) at $(date)"
+          host: ${{ secrets.VM_SSH_HOST }}
+          username: ${{ secrets.VM_SSH_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          port: ${{ secrets.VM_SSH_PORT || 22 }}
+          source: "out/*"
+          target: ${{ secrets.VM_DEPLOY_PATH || '/var/www/espresso-app' }}
+          strip_components: 1
+          rm: true
+
