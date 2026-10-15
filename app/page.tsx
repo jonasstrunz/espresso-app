@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Activity,
   ArrowUpRight,
@@ -11,6 +11,8 @@ import {
   Coffee,
   Droplets,
   Gauge,
+  LogIn,
+  LogOut,
   Menu,
   MoreHorizontal,
   Plus,
@@ -20,8 +22,12 @@ import {
   Sparkles,
   Star,
   Target,
+  User as UserIcon,
   X,
 } from 'lucide-react'
+import { supabase } from '@/lib/supabase'
+import { AuthModal } from '@/components/auth-modal'
+import type { User } from '@supabase/supabase-js'
 
 type Shot = {
   id: number
@@ -75,6 +81,8 @@ function ShotCard({ shot, onClick }: { shot: Shot; onClick: () => void }) {
 }
 
 export default function Page() {
+  const [user, setUser] = useState<User | null>(null)
+  const [authModalOpen, setAuthModalOpen] = useState(false)
   const [shots, setShots] = useState(initialShots)
   const [activeNav, setActiveNav] = useState('Overview')
   const [showLog, setShowLog] = useState(false)
@@ -95,6 +103,23 @@ export default function Page() {
   const today = new Date()
   const longDate = today.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
   const shortDate = today.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      setUser(data.user)
+    })
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null)
+    })
+
+    return () => {
+      authListener.subscription.unsubscribe()
+    }
+  }, [])
+
+  const username = user?.user_metadata?.username || user?.email?.split('@')[0] || 'Jamie Parker'
+  const userInitial = username.charAt(0).toUpperCase()
 
   const filteredShots = useMemo(() => shots.filter((shot) => `${shot.bean} ${shot.roaster} ${shot.flavors.join(' ')}`.toLowerCase().includes(search.toLowerCase())), [shots, search])
 
@@ -129,16 +154,87 @@ export default function Page() {
         <button className="setup-card" onClick={() => setActiveNav('Setup')}><span className="setup-icon"><Settings2 size={16} /></span><span className="setup-copy"><strong>Espresso setup</strong><small>La Marzocco Linea Mini</small></span><ChevronRight size={15} /></button>
         <div className="sidebar-spacer" />
         <div className="sidebar-tip"><span className="tip-sparkle"><Sparkles size={15} /></span><p><strong>A little tip</strong><br />A 1:2 ratio is a lovely place to start. Adjust to taste.</p></div>
-        <button className="profile-button"><span className="avatar">J</span><span className="profile-copy"><strong>Jamie Parker</strong><small>Home barista</small></span><MoreHorizontal size={18} /></button>
+        {user ? (
+          <div style={{ borderTop: '1px solid #e4e1da', paddingTop: '10px' }}>
+            <button
+              className="profile-button"
+              style={{ borderTop: 'none', padding: '4px', width: '100%' }}
+              onClick={() => {}}
+            >
+              <span className="avatar">{userInitial}</span>
+              <span className="profile-copy">
+                <strong>{username}</strong>
+                <small>{user.email}</small>
+              </span>
+            </button>
+            <button
+              onClick={() => supabase.auth.signOut()}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                marginTop: '6px',
+                padding: '6px 8px',
+                background: 'transparent',
+                border: 'none',
+                color: '#88857d',
+                fontSize: '11px',
+                cursor: 'pointer',
+                borderRadius: '6px',
+                width: '100%',
+              }}
+            >
+              <LogOut size={13} />
+              <span>Sign out</span>
+            </button>
+          </div>
+        ) : (
+          <button
+            className="profile-button"
+            onClick={() => setAuthModalOpen(true)}
+            style={{ width: '100%', cursor: 'pointer' }}
+          >
+            <span className="avatar" style={{ background: '#52634b', color: '#fff' }}>
+              <LogIn size={15} />
+            </span>
+            <span className="profile-copy">
+              <strong>Sign in / Register</strong>
+              <small>Sync your coffee data</small>
+            </span>
+          </button>
+        )}
       </aside>
       {mobileMenu && <button className="sidebar-backdrop" aria-label="Close navigation" onClick={() => setMobileMenu(false)} />}
 
       <section className="main-area">
-        <header className="topbar"><button className="menu-button" onClick={() => setMobileMenu(true)} aria-label="Open navigation"><Menu size={19} /></button><div className="breadcrumb">Your journal <ChevronRight size={14} /><strong>{activeNav}</strong></div><div className="topbar-right"><span className="today-label">{shortDate}</span><button className="icon-button" aria-label="Search shots" onClick={() => document.getElementById('shot-search')?.focus()}><Search size={17} /></button><button className="user-avatar" aria-label="Jamie Parker">J</button></div></header>
+        <header className="topbar">
+          <button className="menu-button" onClick={() => setMobileMenu(true)} aria-label="Open navigation"><Menu size={19} /></button>
+          <div className="breadcrumb">Your journal <ChevronRight size={14} /><strong>{activeNav}</strong></div>
+          <div className="topbar-right">
+            <span className="today-label">{shortDate}</span>
+            <button className="icon-button" aria-label="Search shots" onClick={() => document.getElementById('shot-search')?.focus()}><Search size={17} /></button>
+            <button
+              className="user-avatar"
+              aria-label={username}
+              onClick={() => {
+                if (!user) setAuthModalOpen(true)
+              }}
+            >
+              {userInitial}
+            </button>
+          </div>
+        </header>
 
         <div className="page-content">
           {activeNav === 'Setup' ? <SetupPanel /> : <>
-            <div className="page-heading"><div><div className="eyebrow">{longDate.toUpperCase()} <span className="eyebrow-dot" /> DAY 12 OF YOUR JOURNAL</div><h1>{activeNav === 'Coffee shelf' ? 'Your coffee shelf' : activeNav === 'My shots' ? 'Your shot history' : 'Good morning, Jamie'}<span className="heading-period">.</span></h1><p className="page-subtitle">{activeNav === 'Coffee shelf' ? 'A little collection of the coffees you’ve been brewing.' : activeNav === 'My shots' ? 'Every shot is a little more know-how for next time.' : 'A fresh day, a warm cup, and plenty to explore.'}</p></div><button className="primary-button" onClick={() => { setShowLog(true); setSaved(false) }}><Plus size={17} /> Log a shot</button></div>
+            <div className="page-heading">
+              <div>
+                <div className="eyebrow">{longDate.toUpperCase()} <span className="eyebrow-dot" /> DAY 12 OF YOUR JOURNAL</div>
+                <h1>{activeNav === 'Coffee shelf' ? 'Your coffee shelf' : activeNav === 'My shots' ? 'Your shot history' : `Good morning, ${username.split(' ')[0]}`}<span className="heading-period">.</span></h1>
+                <p className="page-subtitle">{activeNav === 'Coffee shelf' ? 'A little collection of the coffees you’ve been brewing.' : activeNav === 'My shots' ? 'Every shot is a little more know-how for next time.' : 'A fresh day, a warm cup, and plenty to explore.'}</p>
+              </div>
+              <button className="primary-button" onClick={() => { setShowLog(true); setSaved(false) }}><Plus size={17} /> Log a shot</button>
+            </div>
 
             {activeNav === 'Overview' && <>
               <section className="stats-grid" aria-label="Journal stats">
@@ -170,6 +266,12 @@ export default function Page() {
       {showLog && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowLog(false) }}><section className="log-modal" role="dialog" aria-modal="true" aria-labelledby="log-title"><div className="modal-header"><div><div className="card-eyebrow"><Coffee size={13} /> YOUR BREW JOURNAL</div><h2 id="log-title">Log a new shot</h2><p>Every little detail helps you find your perfect cup.</p></div><button className="modal-close" onClick={() => setShowLog(false)} aria-label="Close dialog"><X size={19} /></button></div><form onSubmit={saveShot}><div className="form-section-title"><span>01</span> THE RECIPE</div><label className="form-field full-field"><span>Coffee bean</span><input value={bean} onChange={(event) => setBean(event.target.value)} placeholder="e.g. Ethiopia Guji" required /></label><div className="recipe-input-grid"><label className="form-field"><span>Dose <small>grams in</small></span><div className="number-field"><input type="number" step="0.1" min="1" value={dose} onChange={(event) => setDose(event.target.value)} required /><span>g</span></div></label><label className="form-field"><span>Yield <small>grams out</small></span><div className="number-field"><input type="number" step="1" min="1" value={yieldAmount} onChange={(event) => setYieldAmount(event.target.value)} required /><span>g</span></div></label><label className="form-field"><span>Grind setting</span><div className="number-field"><input type="number" step="0.1" min="0" value={grind} onChange={(event) => setGrind(event.target.value)} required /><Settings2 size={14} /></div></label><label className="form-field"><span>Pull time</span><div className="number-field"><input type="number" step="1" min="1" value={time} onChange={(event) => setTime(event.target.value)} required /><span>s</span></div></label></div><div className="form-section-title tasting-title"><span>02</span> THE TASTING NOTES</div><fieldset className="flavor-field"><legend>What flavors came through?</legend><div className="flavor-chips">{['Chocolate', 'Caramel', 'Citrus', 'Berry', 'Floral', 'Nutty', 'Stone fruit', 'Spice'].map((flavor) => <button type="button" key={flavor} className={`flavor-chip ${selectedFlavors.includes(flavor) ? 'selected' : ''}`} onClick={() => toggleFlavor(flavor)}>{selectedFlavors.includes(flavor) && <Check size={12} />}{flavor}</button>)}</div></fieldset><div className="taste-sliders"><TasteSlider label="Sourness" value={acidity} onChange={setAcidity} low="Low" high="Bright" tint="sour" /><TasteSlider label="Bitterness" value={bitterness} onChange={setBitterness} low="Soft" high="Bold" tint="bitter" /></div><label className="form-field notes-field"><span>A few words about this shot <small>optional</small></span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="How did it taste? Anything you’d change next time?" rows={2} /></label><div className="rating-line"><span>Overall, how was it?</span><div className="rating-picker" aria-label="Rate this shot">{Array.from({ length: 5 }, (_, index) => <button type="button" key={index} onClick={() => setRating(index + 1)} aria-label={`Rate ${index + 1} stars`}><Star size={19} fill={index < rating ? 'currentColor' : 'none'} /></button>)}</div></div><div className="modal-actions"><button type="button" className="cancel-button" onClick={() => setShowLog(false)}>Cancel</button><button className="primary-button" type="submit">{saved ? <><Check size={16} /> Shot saved</> : <><Plus size={16} /> Save this shot</>}</button></div></form></section></div>}
 
       {selectedShot && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedShot(null) }}><section className="detail-modal" role="dialog" aria-modal="true" aria-labelledby="detail-title"><button className="modal-close detail-close" onClick={() => setSelectedShot(null)} aria-label="Close details"><X size={19} /></button><span className="detail-bean"><Bean size={20} /></span><div className="eyebrow">{selectedShot.date.toUpperCase()}</div><h2 id="detail-title">{selectedShot.bean}</h2><p className="detail-roaster">{selectedShot.roaster}</p><div className="detail-recipe"><div><span>DOSE</span><strong>{selectedShot.dose}g</strong></div><div><span>YIELD</span><strong>{selectedShot.yield}g</strong></div><div><span>GRIND</span><strong>{selectedShot.grind}</strong></div><div><span>TIME</span><strong>{selectedShot.time}s</strong></div></div><div className="detail-rating">{Array.from({ length: 5 }, (_, index) => <Star key={index} size={15} fill={index < selectedShot.rating ? 'currentColor' : 'none'} />)}<span>{selectedShot.rating}.0</span></div><div className="detail-flavors">{selectedShot.flavors.map((flavor) => <span key={flavor}>{flavor}</span>)}</div>{selectedShot.notes && <p className="detail-notes">“{selectedShot.notes}”</p>}<div className="detail-tastes"><TasteMeter label="Sourness" value={selectedShot.acidity} tint="sour" /><TasteMeter label="Bitterness" value={selectedShot.bitterness} tint="bitter" /></div></section></div>}
+
+      <AuthModal
+        isOpen={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+        onSuccess={() => {}}
+      />
     </main>
   )
 }

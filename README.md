@@ -25,6 +25,7 @@ Integrated with components and design from **v0.dev / Vercel** (`espresso-brewin
 │   ├── layout.tsx        # App root layout with Vercel Analytics & metadata
 │   └── page.tsx          # Main entry screen (Portafilter Journal & Dial-In)
 ├── components/           # React / v0 components
+│   ├── auth-modal.tsx         # Email & password authentication dialog
 │   ├── espresso-dashboard.tsx # Espresso dashboard component
 │   ├── espresso-dial-app.tsx  # Interactive barista dial-in prototype
 │   └── ui/               # Reusable UI primitives (Button, Card, etc.)
@@ -82,11 +83,24 @@ npm run cap:sync
 
 ---
 
-## 🎨 How to integrate new v0.dev components
+## 🔄 CI/CD with GitHub Actions
 
-1. Generate your screen or component in [v0.dev](https://v0.dev).
-2. Either copy the `.tsx` code directly into `components/` or use the v0 CLI:
-   ```bash
-   npx v0 add <component-id>
-   ```
-3. Import your component into `app/page.tsx` or new route folders.
+The repository includes an automated pipeline in `.github/workflows/ci-cd.yml` with three stages:
+1. **Build & Verify:** Runs Next.js static export build and verification on PRs & pushes.
+2. **Supabase Database CI/CD:** Automatically applies new SQL migrations (`supabase/migrations/`) to your Supabase Cloud database on `git push` to `main`.
+3. **Web Frontend Deployment (VM via SSH):** Transmits and deploys the optimized web build directory (`out/`) to your target virtual machine via rsync/SSH.
+
+### Required GitHub Secrets:
+Set these in **Repository Settings -> Secrets and variables -> Actions**:
+
+| Secret Name | Description | Where to find |
+| :--- | :--- | :--- |
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase Cloud project URL | Supabase Dashboard -> Project Settings -> API |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public `anon` API key | Supabase Dashboard -> Project Settings -> API |
+| `SUPABASE_ACCESS_TOKEN` | Personal Access Token for CLI | [supabase.com/account/tokens](https://supabase.com/account/tokens) |
+| `SUPABASE_PROJECT_ID` | Project Reference ID (e.g. `abcdefghijklm`) | Supabase Dashboard -> Project Settings -> General |
+| `SUPABASE_DB_PASSWORD` | Database password set at creation | Supabase project creation |
+| `VM_SSH_HOST` | VM IP or Domain Name | Virtual Machine provider |
+| `VM_SSH_USER` | SSH Username (e.g. `ubuntu` or `root`) | Virtual Machine |
+| `VM_SSH_KEY` | Private SSH Key (`id_rsa` or `id_ed25519`) | Your SSH key pair |
+| `VM_DEPLOY_PATH` | Target directory on VM (e.g. `/var/www/espresso-app`) | VM web server root |
