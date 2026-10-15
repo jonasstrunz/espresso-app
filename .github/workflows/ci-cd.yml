@@ -58,10 +58,11 @@ jobs:
 
       - name: Link and Push Migrations to Supabase Cloud
         run: |
-          supabase link --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} --password ${{ secrets.SUPABASE_DB_PASSWORD }}
-          supabase db push
+          supabase link --project-ref "${{ secrets.SUPABASE_PROJECT_ID }}" --password "${{ secrets.SUPABASE_DB_PASSWORD }}"
+          supabase db push --password "${{ secrets.SUPABASE_DB_PASSWORD }}"
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
 
   # 3. Deploy Web Frontend to VM via SSH
   deploy-vm:
@@ -76,28 +77,25 @@ jobs:
           name: web-dist
           path: out/
 
-      - name: Deploy to VM via native SSH / SCP
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.VM_SSH_HOST }}
-          username: ${{ secrets.VM_SSH_USER }}
-          key: ${{ secrets.VM_SSH_KEY }}
-          port: ${{ secrets.VM_SSH_PORT || 22 }}
-          script: |
-            TARGET="${{ secrets.VM_DEPLOY_PATH || '/var/www/espresso-app' }}"
-            sudo mkdir -p "$TARGET" || mkdir -p "$TARGET"
-            sudo chown -R ${{ secrets.VM_SSH_USER }} "$TARGET" 2>/dev/null || true
+      - name: Deploy files to VM using standard SSH/SCP
+        env:
+          SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+          HOST: ${{ secrets.VM_SSH_HOST }}
+          USER: ${{ secrets.VM_SSH_USER }}
+          PORT: ${{ secrets.VM_SSH_PORT || '22' }}
+          TARGET: ${{ secrets.VM_DEPLOY_PATH || '~/espresso-app' }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -p "$PORT" -H "$HOST" >> ~/.ssh/known_hosts
 
-      - name: Copy files to VM
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.VM_SSH_HOST }}
-          username: ${{ secrets.VM_SSH_USER }}
-          key: ${{ secrets.VM_SSH_KEY }}
-          port: ${{ secrets.VM_SSH_PORT || 22 }}
-          source: "out/*"
-          target: ${{ secrets.VM_DEPLOY_PATH || '/var/www/espresso-app' }}
-          strip_components: 1
-          overwrite: true
+          # Ensure target directory exists on remote server
+          ssh -p "$PORT" -i ~/.ssh/id_rsa "$USER@$HOST" "mkdir -p '$TARGET'"
+
+          # Securely copy files
+          scp -P "$PORT" -i ~/.ssh/id_rsa -r out/* "$USER@$HOST:$TARGET/"
+          echo "Deployment successful to $USER@$HOST:$TARGET"
+
 
 
