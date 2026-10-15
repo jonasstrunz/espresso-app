@@ -28,7 +28,12 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
     setLoading(true)
 
     try {
+      if (!process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL.includes('placeholder')) {
+        throw new Error('Supabase project URL is not configured yet. Please configure NEXT_PUBLIC_SUPABASE_URL in your build secrets.')
+      }
+
       if (isSignUp) {
+
         const { data, error } = await supabase.auth.signUp({
           email,
           password,
