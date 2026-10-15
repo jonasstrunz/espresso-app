@@ -1,4 +1,5 @@
-project_id = ""
+# A string used to distinguish different Supabase projects on the same host. Defaults to the working directory name when running locally.
+project_id = "espresso-app"
 
 [api]
 enabled = true
@@ -8,4 +9,3 @@ schemas = ["public", "storage", "graphql_public"]
 [db]
 port = 54322
 major_version = 15
-
