@@ -1,15 +1,18 @@
-# ☕ Espresso Studio (Web + iOS + Android)
+# ☕ Portafilter / Espresso Studio (Web + iOS + Android)
 
-A cross-platform Espresso Barista & Machine Setup Dial-In application built with **Next.js (App Router)**, **Tailwind CSS**, **shadcn/ui**, **Supabase**, and **Capacitor**.
+A cross-platform Espresso Barista Journal & Machine Setup Dial-In application built with **Next.js (App Router)**, **Tailwind CSS v4**, **shadcn/ui**, **Supabase**, and **Capacitor**.
+
+Integrated with components and design from **v0.dev / Vercel** (`espresso-brewing-tracker`).
 
 ---
 
 ## 🚀 Features & Architecture
 
 - **Universal UI:** Works on modern Web browsers and inside native iOS and Android apps.
-- **Shot Logger & Live Timer:** Precision dose, yield, grind size steppers, extraction stopwatch, taste balance sliders, and sensory rating.
+- **Portafilter Journal & Dashboard:** Integrated v0 espresso tracking dashboard, shot journal, tasting flavor chips, sourness/bitterness balance meters, and coffee shelf.
+- **Machine & Grinder Setup Corner:** Configurable espresso machines (e.g. La Marzocco Linea Mini, Decent) and grinder dial-in settings (e.g. Niche Zero, DF64, Mazzer).
 - **Capacitor Mobile Shell:** Ready-to-build Xcode (`ios/`) and Android Studio (`android/`) projects.
-- **Supabase Integration Ready:** Client pre-configured in `lib/supabase.ts` for database and auth sync.
+- **Supabase Integration Ready:** Client pre-configured in `lib/supabase.ts` and SQL migration schema in `supabase/schema.sql`.
 - **v0.dev Friendly:** Designed with clean components (`components/ui/*`) for 1-click importing from v0.dev.
 
 ---
@@ -18,18 +21,20 @@ A cross-platform Espresso Barista & Machine Setup Dial-In application built with
 
 ```text
 ├── app/                  # Next.js App Router (pages and layouts)
-│   ├── globals.css       # Tailwind CSS styling
-│   ├── layout.tsx        # App root layout and metadata
-│   └── page.tsx          # Main entry screen
+│   ├── globals.css       # Tailwind CSS styling & custom theme variables
+│   ├── layout.tsx        # App root layout with Vercel Analytics & metadata
+│   └── page.tsx          # Main entry screen (Portafilter Journal & Dial-In)
 ├── components/           # React / v0 components
-│   ├── espresso-dial-app.tsx # Interactive barista dial-in prototype
+│   ├── espresso-dashboard.tsx # Espresso dashboard component
+│   ├── espresso-dial-app.tsx  # Interactive barista dial-in prototype
 │   └── ui/               # Reusable UI primitives (Button, Card, etc.)
 ├── lib/                  # Utilities & Supabase client
 │   ├── supabase.ts       # Supabase client initialization
 │   └── utils.ts          # Tailwind class merger (cn)
 ├── ios/                  # Native iOS (Xcode) project
 ├── android/              # Native Android (Android Studio) project
-├── capacitor.config.json # Capacitor configuration
+├── capacitor.config.ts   # Capacitor configuration
+├── next.config.mjs       # Next.js configuration (static export)
 └── package.json          # Dependencies and scripts
 ```
 
