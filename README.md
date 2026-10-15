@@ -100,6 +100,7 @@ Set these in **Repository Settings -> Secrets and variables -> Actions**:
 | `SUPABASE_ACCESS_TOKEN` | Personal Access Token for CLI | [supabase.com/account/tokens](https://supabase.com/account/tokens) |
 | `SUPABASE_PROJECT_ID` | Project Reference ID (e.g. `abcdefghijklm`) | Supabase Dashboard -> Project Settings -> General |
 | `SUPABASE_DB_PASSWORD` | Database password set at creation | Supabase project creation |
+| `SUPABASE_DB_URL` *(Optional)* | Direct PostgreSQL URI (bypasses Management API) | Supabase Dashboard -> Project Settings -> Database -> Connection String |
 | `VM_SSH_HOST` | VM IP or Domain Name | Virtual Machine provider |
 | `VM_SSH_USER` | SSH Username (e.g. `ubuntu` or `root`) | Virtual Machine |
 | `VM_SSH_KEY` | Private SSH Key (`id_rsa` or `id_ed25519`) | Your SSH key pair |
