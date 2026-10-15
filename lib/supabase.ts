@@ -1,12 +1,24 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://your-project.supabase.co';
-// Supabase replaced the legacy anon JWT key with the publishable API key (`sb_publishable_...`).
-// Fall back to NEXT_PUBLIC_SUPABASE_ANON_KEY for backwards compatibility.
-const supabasePublishableKey =
+const rawUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+const rawKey = (
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-  'your-publishable-key';
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+)?.trim();
 
-export const supabase = createClient(supabaseUrl, supabasePublishableKey);
+const isValidUrl = (url?: string) => {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+};
+
+const supabaseUrl = isValidUrl(rawUrl) ? rawUrl! : 'https://placeholder.supabase.co';
+const supabaseKey = rawKey && rawKey.length > 0 ? rawKey : 'placeholder-anon-key';
+
+export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseKey);
+
 
