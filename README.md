@@ -95,40 +95,37 @@ The repository includes an automated pipeline in `.github/workflows/ci-cd.yml` w
 Every push to a `feature/**` or `bugfix/**` branch deploys to a shared staging
 environment instead of production:
 
-1. **Resolve branch credentials:** `supabase branches get <name> -o env` fetches
-   the persistent staging branch's direct DB URL, Data API URL and API keys.
+1. **Validate:** refuses to run if the staging URL equals the production URL —
+   the reset below can never touch production.
 2. **Database reset:** `supabase/staging/reset.sql` wipes app data + auth users
    and clears migration history (fresh, deterministic state every run).
-3. **Migrations & grants:** `supabase db push` replays `supabase/migrations/`,
-   then `supabase/staging/grants.sql` grants the Data API roles access
-   (branches start without default privileges).
+3. **Migrations & grants:** every file in `supabase/migrations/` is replayed,
+   then `supabase/staging/grants.sql` grants the Data API roles access.
 4. **Seed:** `supabase/staging/seed.sql` loads realistic test data
    (see test accounts below).
-5. **Build & Deploy:** Builds the static export against the *branch's* Supabase
+5. **Build & Deploy:** builds the static export against the *staging* Supabase
    URL/keys and scp's `out/` to the staging directory on the same VM as
-   production (`~/espresso-app-staging` by default).
+   production (`~/espresso-app-staging`, served by nginx on port **3002**).
 
-Runs are serialized via a `concurrency` group, so the single staging database
-and deploy path are never touched by two runs at once.
+All SQL runs through the Supabase **Management API**
+(`POST /v1/projects/{ref}/database/query`) via `supabase/staging/run_sql.sh` —
+no DB connection string or password is needed, SQL errors fail the job
+(HTTP 400), and the only credential used is `SUPABASE_ACCESS_TOKEN`.
+Runs are serialized via a `concurrency` group, so the staging database and
+deploy path are never touched by two runs at once.
 
-**One-time setup:**
+**GitHub configuration** (Repository Settings -> Secrets and variables -> Actions):
 
-```bash
-# Create the long-lived ("persistent") staging branch of the production project:
-supabase --experimental branches create staging --persistent --project-ref <PROD_PROJECT_REF>
-# (or via the Management API: POST /v1/projects/<PROD_PROJECT_REF>/branches
-#  with body {"branch_name": "staging", "is_default": false, "persistent": true})
-```
+| Name | Type | Description |
+| :--- | :--- | :--- |
+| `STAGING_SUPABASE_PROJECT_ID` | Variable | Project ref of the staging Supabase project |
+| `NEXT_PUBLIC_STAGING_SUPABASE_URL` | Secret | Staging project URL (`https://<ref>.supabase.co`) |
+| `NEXT_PUBLIC_STAGING_SUPABASE_PUBLISHABLE_KEY` | Secret | Staging project publishable key |
+| `VM_STAGING_DEPLOY_PATH` *(Optional)* | Secret | Staging dir on VM (default `~/espresso-app-staging`) |
+| `VM_SSH_PORT` *(Optional)* | Secret | SSH port (default `22`, shared with prod deploy) |
 
-Optional configuration:
-
-| Name | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `VM_STAGING_DEPLOY_PATH` | Secret | `~/espresso-app-staging` | Staging directory on the VM (must differ from `VM_DEPLOY_PATH`) |
-| `STAGING_BRANCH` | Variable | `staging` | Name of the persistent Supabase staging branch |
-| `VM_SSH_PORT` | Secret | `22` | SSH port (shared with the production deploy) |
-
-**Staging test accounts** (email confirmation pre-set, no SMTP on branches):
+**Staging test accounts** (email confirmation pre-set, no SMTP on the staging
+project):
 
 | Email | Password |
 | :--- | :--- |
