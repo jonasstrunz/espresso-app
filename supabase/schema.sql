@@ -19,7 +19,8 @@ create table if not exists public.equipment (
   nickname text,
   settings jsonb default '{}'::jsonb, -- e.g. PID temp, OPV pressure, burr size
   is_active boolean default true,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  constraint equipment_user_type_key unique (user_id, type)
 );
 
 -- 3. Coffee Beans Stash

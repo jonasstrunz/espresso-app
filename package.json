@@ -22,7 +22,6 @@
     "@capacitor/status-bar": "^8.0.4",
     "@supabase/supabase-js": "^2.117.3",
     "@tailwindcss/postcss": "^4.3.3",
-    "@vercel/analytics": "^2.0.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.57.0",
