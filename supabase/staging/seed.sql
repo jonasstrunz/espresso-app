@@ -10,10 +10,16 @@ begin;
 
 -- 1. Test users. The on_auth_user_created trigger created by the migrations
 --    inserts the matching public.profiles rows automatically.
+--    GoTrue scans the token columns (confirmation_token, ...) into plain
+--    strings - they must be '' not NULL, or every read of the row fails with
+--    "Database error querying schema". Same for email_change.
 insert into auth.users (
   id, instance_id, aud, role, email, encrypted_password,
   email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
-  created_at, updated_at
+  created_at, updated_at,
+  confirmation_token, recovery_token, email_change_token_new,
+  email_change_token_current, phone_change_token, reauthentication_token,
+  email_change
 ) values
   (
     'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -24,7 +30,9 @@ insert into auth.users (
     now(),
     '{"provider":"email","providers":["email"]}'::jsonb,
     '{"username":"Staging Tester"}'::jsonb,
-    now(), now()
+    now(), now(),
+    '', '', '', '', '', '',
+    ''
   ),
   (
     'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
@@ -35,11 +43,36 @@ insert into auth.users (
     now(),
     '{"provider":"email","providers":["email"]}'::jsonb,
     '{"username":"Second Taster"}'::jsonb,
-    now(), now()
+    now(), now(),
+    '', '', '', '', '', '',
+    ''
   )
 on conflict (id) do nothing;
 
--- 2. Equipment
+-- 2. Identities: GoTrue requires one identity row per user for logins
+--    (normally created by signup); password login 500s without them.
+--    `email` is a generated column (identity_data->>'email') - do not insert it.
+insert into auth.identities (
+  id, provider_id, user_id, identity_data, provider,
+  last_sign_in_at, created_at, updated_at
+) values
+  (
+    'ffffffff-ffff-4fff-8fff-fffffffff001',
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    '{"sub": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "email": "staging@example.com", "username": "Staging Tester", "email_verified": true, "phone_verified": false}'::jsonb,
+    'email', now(), now(), now()
+  ),
+  (
+    'ffffffff-ffff-4fff-8fff-fffffffff002',
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    '{"sub": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "email": "taster@example.com", "username": "Second Taster", "email_verified": true, "phone_verified": false}'::jsonb,
+    'email', now(), now(), now()
+  )
+on conflict (id) do nothing;
+
+-- 3. Equipment
 insert into public.equipment (id, user_id, type, brand, model, nickname, settings) values
   ('cccccccc-cccc-4ccc-8ccc-ccccccccccc1', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'machine',
    'La Marzocco', 'Linea Mini', 'Linea Mini (staging)',
@@ -53,7 +86,7 @@ insert into public.equipment (id, user_id, type, brand, model, nickname, setting
    'Breville', 'Bambino Plus', 'Bambino (staging)',
    '{"temp_celsius": 92, "pressure_bar": 9}'::jsonb);
 
--- 3. Beans
+-- 4. Beans
 insert into public.beans (id, user_id, name, roaster, roast_date, roast_level, process, origin) values
   ('dddddddd-dddd-4ddd-8ddd-ddddddddddd1', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
    'Guji Highlands', 'Test Roastery', date '2026-10-01', 'light', 'washed', 'Ethiopia'),
@@ -62,7 +95,7 @@ insert into public.beans (id, user_id, name, roaster, roast_date, roast_level, p
   ('dddddddd-dddd-4ddd-8ddd-ddddddddddd3', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
    'Night Shift Decaf', 'Sample Coffee', date '2026-09-28', 'dark', 'swiss water', 'Colombia');
 
--- 4. Shots -- mix of relation-based and direct bean_name style (both are
+-- 5. Shots -- mix of relation-based and direct bean_name style (both are
 --    supported by the current app schema).
 insert into public.shots (
   id, user_id, bean_id, grinder_id, machine_id,

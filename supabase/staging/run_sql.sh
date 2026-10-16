@@ -10,10 +10,21 @@ set -euo pipefail
 file="$1"
 test -f "$file" || { echo "SQL file not found: $file" >&2; exit 1; }
 
-jq -n --rawfile query "$file" '{query: $query}' |
-  curl -fsS -X POST \
+payload=$(python3 -c 'import json,sys; print(json.dumps({"query": open(sys.argv[1], encoding="utf-8").read()}))' "$file")
+
+# On failure show the API's error body (curl -f suppresses it by default).
+if ! resp=$(curl -sS -w $'\n%{http_code}' -X POST \
     -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
     -H "Content-Type: application/json" \
-    --data-binary @- \
-    "https://api.supabase.com/v1/projects/$STAGING_SUPABASE_PROJECT_ID/database/query"
+    --data-binary "$payload" \
+    "https://api.supabase.com/v1/projects/$STAGING_SUPABASE_PROJECT_ID/database/query"); then
+  echo "request failed for $file" >&2
+  exit 1
+fi
+code=${resp##*$'\n'}
+body=${resp%$'\n'*}
+if [ "$code" != "200" ] && [ "$code" != "201" ]; then
+  echo "HTTP $code for $file: $body" >&2
+  exit 1
+fi
 echo " applied: $file"

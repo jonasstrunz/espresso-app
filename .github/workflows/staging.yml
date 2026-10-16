@@ -65,6 +65,20 @@ jobs:
       - name: Seed staging data
         run: bash supabase/staging/run_sql.sh supabase/staging/seed.sql
 
+      - name: Smoke test staging (login + RLS)
+        run: |
+          key="$STAGING_SUPABASE_PUBLISHABLE_KEY"
+          tok=$(curl -sS -X POST "$STAGING_SUPABASE_URL/auth/v1/token?grant_type=password" \
+            -H "apikey: $key" -H "Authorization: Bearer $key" -H "Content-Type: application/json" \
+            -d '{"email":"staging@example.com","password":"StagingTest123!"}' \
+            | python3 -c "import json,sys; print(json.load(sys.stdin).get('access_token',''))")
+          if [ -z "$tok" ]; then echo "::error::staging login smoke test failed"; exit 1; fi
+          n=$(curl -sS -H "apikey: $key" -H "Authorization: Bearer $tok" \
+            "$STAGING_SUPABASE_URL/rest/v1/shots?select=id" \
+            | python3 -c "import json,sys; print(len(json.load(sys.stdin)))")
+          if [ "$n" != "4" ]; then echo "::error::expected 4 seeded shots for staging user, got $n"; exit 1; fi
+          echo "Smoke test OK: login works, $n seeded shots visible"
+
       - name: Build web application (Staging static export)
         run: npm run build
         env:
