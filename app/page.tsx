@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState, useCallback } from 'react'
+import { useEffect, useMemo, useState, useCallback, useSyncExternalStore } from 'react'
 import {
   Activity,
   ArrowUpRight,
@@ -53,6 +53,25 @@ const navItems = [
   { name: 'My shots', icon: Coffee },
   { name: 'Coffee shelf', icon: Bean },
 ]
+
+const FORM_DEFAULTS = {
+  dose: '18.0',
+  yieldAmount: '38',
+  grind: '2.4',
+  time: '28',
+  bean: '',
+  roaster: '',
+  notes: '',
+  selectedFlavors: ['Chocolate'],
+  acidity: 3,
+  bitterness: 2,
+  rating: 4,
+}
+
+// Hydration-safe "is mounted" flag: the server snapshot (and thus the first
+// client render) is false, so prerendered HTML and hydration agree; after
+// hydration React re-reads the store and re-renders with the real value.
+const subscribeNoop = () => () => {}
 
 function AppLogo() {
   return (
@@ -142,33 +161,41 @@ export default function Page() {
   const [mobileMenu, setMobileMenu] = useState(false)
 
   // Log form state
-  const [dose, setDose] = useState('18.0')
-  const [yieldAmount, setYieldAmount] = useState('38')
-  const [grind, setGrind] = useState('2.4')
-  const [time, setTime] = useState('28')
-  const [bean, setBean] = useState('')
-  const [roaster, setRoaster] = useState('')
-  const [notes, setNotes] = useState('')
-  const [selectedFlavors, setSelectedFlavors] = useState<string[]>(['Chocolate'])
-  const [acidity, setAcidity] = useState(3)
-  const [bitterness, setBitterness] = useState(2)
-  const [rating, setRating] = useState(4)
+  const [dose, setDose] = useState(FORM_DEFAULTS.dose)
+  const [yieldAmount, setYieldAmount] = useState(FORM_DEFAULTS.yieldAmount)
+  const [grind, setGrind] = useState(FORM_DEFAULTS.grind)
+  const [time, setTime] = useState(FORM_DEFAULTS.time)
+  const [bean, setBean] = useState(FORM_DEFAULTS.bean)
+  const [roaster, setRoaster] = useState(FORM_DEFAULTS.roaster)
+  const [notes, setNotes] = useState(FORM_DEFAULTS.notes)
+  const [selectedFlavors, setSelectedFlavors] = useState<string[]>([...FORM_DEFAULTS.selectedFlavors])
+  const [acidity, setAcidity] = useState(FORM_DEFAULTS.acidity)
+  const [bitterness, setBitterness] = useState(FORM_DEFAULTS.bitterness)
+  const [rating, setRating] = useState(FORM_DEFAULTS.rating)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
-  const today = new Date()
-  const longDate = today.toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-  })
-  const shortDate = today.toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-  })
+  // `new Date()` differs between the build-time prerender and the time the
+  // page is viewed, which caused React hydration error #418 on every load.
+  // Render the date only after hydration instead.
+  const isMounted = useSyncExternalStore(subscribeNoop, () => true, () => false)
+  const today = isMounted ? new Date() : null
+  const longDate = today
+    ? today.toLocaleDateString('en-US', {
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric',
+        year: 'numeric',
+      })
+    : ''
+  const shortDate = today
+    ? today.toLocaleDateString('en-US', {
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric',
+      })
+    : ''
 
   // Format timestamp helper
   const formatDate = (dateStr: string) => {
@@ -392,10 +419,19 @@ export default function Page() {
       setTimeout(() => {
         setSaved(false)
         setShowLog(false)
-        // Reset form
-        setBean('')
-        setRoaster('')
-        setNotes('')
+        // Reset the whole form so the next shot doesn't inherit flavors,
+        // rating, sliders or recipe values from this one.
+        setDose(FORM_DEFAULTS.dose)
+        setYieldAmount(FORM_DEFAULTS.yieldAmount)
+        setGrind(FORM_DEFAULTS.grind)
+        setTime(FORM_DEFAULTS.time)
+        setBean(FORM_DEFAULTS.bean)
+        setRoaster(FORM_DEFAULTS.roaster)
+        setNotes(FORM_DEFAULTS.notes)
+        setSelectedFlavors([...FORM_DEFAULTS.selectedFlavors])
+        setAcidity(FORM_DEFAULTS.acidity)
+        setBitterness(FORM_DEFAULTS.bitterness)
+        setRating(FORM_DEFAULTS.rating)
       }, 700)
     } catch (err: any) {
       alert(`Could not save shot: ${err.message || 'Please check your connection'}`)
@@ -793,6 +829,23 @@ export default function Page() {
                           onClick={() => setSelectedShot(shot)}
                         />
                       ))
+                  ) : shots.length > 0 ? (
+                    <div className="no-results" style={{ padding: '40px 20px', textAlign: 'center' }}>
+                      <Search size={32} style={{ margin: '0 auto 12px', opacity: 0.4 }} />
+                      <p style={{ fontWeight: 600, color: '#322f28', marginBottom: '4px' }}>
+                        No shots match your search
+                      </p>
+                      <p style={{ fontSize: '13px', color: '#88857d', marginBottom: '16px' }}>
+                        Try another bean or flavor.
+                      </p>
+                      <button
+                        className="primary-button"
+                        style={{ margin: '0 auto' }}
+                        onClick={() => setSearch('')}
+                      >
+                        <X size={16} /> Clear search
+                      </button>
+                    </div>
                   ) : (
                     <div className="no-results" style={{ padding: '40px 20px', textAlign: 'center' }}>
                       <Coffee size={32} style={{ margin: '0 auto 12px', opacity: 0.4 }} />
@@ -1306,7 +1359,12 @@ function SetupPanel({
       .from('equipment')
       .select('*')
       .eq('user_id', user.id)
-      .then(({ data }) => {
+      .order('created_at', { ascending: false })
+      .then(({ data, error }) => {
+        if (error) {
+          console.error('Error fetching equipment:', error)
+          return
+        }
         if (data && data.length > 0) {
           const machineItem = data.find((e: any) => e.type === 'machine')
           const grinderItem = data.find((e: any) => e.type === 'grinder')
@@ -1328,34 +1386,63 @@ function SetupPanel({
     }
     setSaving(true)
     try {
-      // Save machine
-      await supabase.from('equipment').upsert({
-        user_id: user.id,
-        type: 'machine',
-        brand: setup.machine.split(' ')[0] || 'Espresso',
-        model: setup.machine.split(' ').slice(1).join(' ') || 'Machine',
-        settings: {
-          machineDetails: setup.machineDetails,
-          basketSize: setup.basketSize,
-          temperature: setup.temperature,
-          preinfusion: setup.preinfusion,
-          water: setup.water,
-          basket: setup.basket,
+      const payloads = [
+        {
+          type: 'machine',
+          brand: setup.machine.split(' ')[0] || 'Espresso',
+          model: setup.machine.split(' ').slice(1).join(' ') || 'Machine',
+          settings: {
+            machineDetails: setup.machineDetails,
+            basketSize: setup.basketSize,
+            temperature: setup.temperature,
+            preinfusion: setup.preinfusion,
+            water: setup.water,
+            basket: setup.basket,
+          },
         },
-      })
-      // Save grinder
-      await supabase.from('equipment').upsert({
-        user_id: user.id,
-        type: 'grinder',
-        brand: setup.grinder.split(' ')[0] || 'Coffee',
-        model: setup.grinder.split(' ').slice(1).join(' ') || 'Grinder',
-        settings: {
-          grinderDetails: setup.grinderDetails,
-          grindRange: setup.grindRange,
-          dialDirection: setup.dialDirection,
-          doseRange: setup.doseRange,
+        {
+          type: 'grinder',
+          brand: setup.grinder.split(' ')[0] || 'Coffee',
+          model: setup.grinder.split(' ').slice(1).join(' ') || 'Grinder',
+          settings: {
+            grinderDetails: setup.grinderDetails,
+            grindRange: setup.grindRange,
+            dialDirection: setup.dialDirection,
+            doseRange: setup.doseRange,
+          },
         },
-      })
+      ]
+
+      for (const payload of payloads) {
+        // Update the existing row instead of inserting a new one — upsert without
+        // a unique constraint on (user_id, type) used to create duplicates.
+        const { data: existing, error: selectError } = await supabase
+          .from('equipment')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('type', payload.type)
+          .order('created_at', { ascending: false })
+          .limit(1)
+        if (selectError) throw selectError
+
+        if (existing && existing.length > 0) {
+          const { error } = await supabase
+            .from('equipment')
+            .update({
+              brand: payload.brand,
+              model: payload.model,
+              settings: payload.settings,
+            })
+            .eq('id', existing[0].id)
+          if (error) throw error
+        } else {
+          const { error } = await supabase.from('equipment').insert({
+            user_id: user.id,
+            ...payload,
+          })
+          if (error) throw error
+        }
+      }
       setIsEditing(false)
     } catch (err: any) {
       alert(`Could not save equipment: ${err.message}`)

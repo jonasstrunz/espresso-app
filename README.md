@@ -22,7 +22,7 @@ Integrated with components and design from **v0.dev / Vercel** (`espresso-brewin
 ```text
 ├── app/                  # Next.js App Router (pages and layouts)
 │   ├── globals.css       # Tailwind CSS styling & custom theme variables
-│   ├── layout.tsx        # App root layout with Vercel Analytics & metadata
+│   ├── layout.tsx        # App root layout with metadata
 │   └── page.tsx          # Main entry screen (Portafilter Journal & Dial-In)
 ├── components/           # React / v0 components
 │   ├── auth-modal.tsx         # Email & password authentication dialog
