@@ -1,0 +1,113 @@
+name: Staging Pipeline
+
+on:
+  push:
+    branches:
+      - 'feature/**'
+      - 'bugfix/**'
+  workflow_dispatch:
+
+# Single shared staging environment: serialize runs so the database reset and
+# the VM deployment from concurrent pushes can never overlap.
+concurrency:
+  group: staging-environment
+  cancel-in-progress: true
+
+jobs:
+  deploy-staging:
+    name: Build & Deploy Staging
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      STAGING_SUPABASE_PROJECT_ID: ${{ vars.STAGING_SUPABASE_PROJECT_ID }}
+      STAGING_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_STAGING_SUPABASE_URL }}
+      STAGING_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_STAGING_SUPABASE_PUBLISHABLE_KEY }}
+      PROD_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate staging configuration
+        # Hard safety rail: never run the reset against the production project.
+        run: |
+          fail() { echo "::error::$1"; exit 1; }
+          [ -n "$SUPABASE_ACCESS_TOKEN" ] || fail "Missing secret SUPABASE_ACCESS_TOKEN"
+          [ -n "$STAGING_SUPABASE_PROJECT_ID" ] || fail "Missing variable STAGING_SUPABASE_PROJECT_ID"
+          [ -n "$STAGING_SUPABASE_URL" ] || fail "Missing secret NEXT_PUBLIC_STAGING_SUPABASE_URL"
+          [ -n "$STAGING_SUPABASE_PUBLISHABLE_KEY" ] || fail "Missing secret NEXT_PUBLIC_STAGING_SUPABASE_PUBLISHABLE_KEY"
+          [ -n "$PROD_SUPABASE_URL" ] || fail "Missing secret NEXT_PUBLIC_SUPABASE_URL"
+          if [ "$STAGING_SUPABASE_URL" = "$PROD_SUPABASE_URL" ]; then
+            fail "Staging URL equals production URL - refusing to reset production"
+          fi
+          echo "Staging project: $STAGING_SUPABASE_PROJECT_ID ($STAGING_SUPABASE_URL)"
+
+      - name: Reset staging database
+        run: bash supabase/staging/run_sql.sh supabase/staging/reset.sql
+
+      - name: Apply migrations to staging
+        run: |
+          for f in supabase/migrations/*.sql; do
+            bash supabase/staging/run_sql.sh "$f"
+          done
+
+      - name: Apply Data API grants
+        run: bash supabase/staging/run_sql.sh supabase/staging/grants.sql
+
+      - name: Seed staging data
+        run: bash supabase/staging/run_sql.sh supabase/staging/seed.sql
+
+      - name: Smoke test staging (login + RLS)
+        run: |
+          key="$STAGING_SUPABASE_PUBLISHABLE_KEY"
+          tok=$(curl -sS -X POST "$STAGING_SUPABASE_URL/auth/v1/token?grant_type=password" \
+            -H "apikey: $key" -H "Authorization: Bearer $key" -H "Content-Type: application/json" \
+            -d '{"email":"staging@example.com","password":"StagingTest123!"}' \
+            | python3 -c "import json,sys; print(json.load(sys.stdin).get('access_token',''))")
+          if [ -z "$tok" ]; then echo "::error::staging login smoke test failed"; exit 1; fi
+          n=$(curl -sS -H "apikey: $key" -H "Authorization: Bearer $tok" \
+            "$STAGING_SUPABASE_URL/rest/v1/shots?select=id" \
+            | python3 -c "import json,sys; print(len(json.load(sys.stdin)))")
+          if [ "$n" != "4" ]; then echo "::error::expected 4 seeded shots for staging user, got $n"; exit 1; fi
+          echo "Smoke test OK: login works, $n seeded shots visible"
+
+      - name: Build web application (Staging static export)
+        run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ env.STAGING_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ env.STAGING_SUPABASE_PUBLISHABLE_KEY }}
+
+      - name: Deploy files to VM staging path via SSH/SCP
+        env:
+          SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+          HOST: ${{ secrets.VM_SSH_HOST }}
+          USER: ${{ secrets.VM_SSH_USER }}
+          PORT: ${{ secrets.VM_SSH_PORT || '22' }}
+          TARGET: ${{ secrets.VM_STAGING_DEPLOY_PATH || '~/espresso-app-staging' }}
+        run: |
+          if [ -z "$TARGET" ] || [ "$TARGET" = "/" ] || [ "$TARGET" = "~" ]; then
+            echo "Refusing to deploy to unsafe target '$TARGET'"
+            exit 1
+          fi
+
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -p "$PORT" -H "$HOST" >> ~/.ssh/known_hosts
+
+          # Clear the target's *contents* (keeping the directory itself) so no
+          # stale hashed build assets survive a redeploy. The directory must not
+          # be deleted and recreated: nginx bind-mounts it and would keep
+          # serving the detached old inode.
+          ssh -p "$PORT" -i ~/.ssh/id_rsa "$USER@$HOST" "mkdir -p $TARGET && rm -rf $TARGET/*"
+
+          scp -P "$PORT" -i ~/.ssh/id_rsa -r out/* "$USER@$HOST:$TARGET/"
+          echo "Staging deployment successful to $USER@$HOST:$TARGET"
