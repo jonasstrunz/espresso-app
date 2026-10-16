@@ -48,6 +48,18 @@ export type Shot = {
   created_at: string
 }
 
+// One unique coffee on the shelf, aggregated from its (date-desc) shots.
+export type BeanSummary = {
+  key: string
+  name: string
+  roaster: string
+  shots: number
+  avgRating: string
+  avgGrind: string
+  lastDate: string
+  latestShot: Shot
+}
+
 const navItems = [
   { name: 'Overview', icon: Activity },
   { name: 'My shots', icon: Coffee },
@@ -144,6 +156,41 @@ function ShotCard({ shot, onClick }: { shot: Shot; onClick: () => void }) {
         ))}
       </span>
       <span className="shot-date">{shot.date}</span>
+      <ChevronRight className="shot-chevron" size={16} />
+    </button>
+  )
+}
+
+function BeanCard({ bean, onClick }: { bean: BeanSummary; onClick: () => void }) {
+  return (
+    <button type="button" className="shot-row" onClick={onClick}>
+      <span className="shot-bean-icon">
+        <Bean size={17} />
+      </span>
+      <span className="shot-main">
+        <span className="shot-name">{bean.name}</span>
+        <span className="shot-roaster">{bean.roaster}</span>
+      </span>
+      <span className="shot-recipe">
+        <strong>{bean.shots}</strong>
+        <span>{bean.shots === 1 ? 'shot' : 'shots'}</span>
+      </span>
+      <span className="shot-time">
+        <Settings2 size={13} /> {bean.avgGrind}
+      </span>
+      <span
+        className="shot-rating"
+        aria-label={`Average ${bean.avgRating} out of 5 stars`}
+      >
+        {Array.from({ length: 5 }, (_, i) => (
+          <Star
+            key={i}
+            size={12}
+            fill={i < Math.round(Number(bean.avgRating)) ? 'currentColor' : 'none'}
+          />
+        ))}
+      </span>
+      <span className="shot-date">{bean.lastDate}</span>
       <ChevronRight className="shot-chevron" size={16} />
     </button>
   )
@@ -461,12 +508,38 @@ export default function Page() {
     )
   }
 
-  const displayedShots =
-    activeNav === 'Coffee shelf'
-      ? filteredShots.filter(
-          (shot, index, list) => list.findIndex((item) => item.bean === shot.bean) === index
-        )
-      : filteredShots
+  // Unique coffees for the shelf, aggregated from shots (newest-first order),
+  // so the first shot seen per bean is its most recent one.
+  const beans = useMemo(() => {
+    const map = new Map<string, BeanSummary>()
+    filteredShots.forEach((shot) => {
+      const key = `${shot.bean}|${shot.roaster}`
+      const existing = map.get(key)
+      if (existing) {
+        existing.shots += 1
+        existing.avgRating = (
+          ((Number(existing.avgRating) * (existing.shots - 1)) + shot.rating) /
+          existing.shots
+        ).toFixed(1)
+      } else {
+        map.set(key, {
+          key,
+          name: shot.bean,
+          roaster: shot.roaster,
+          shots: 1,
+          avgRating: shot.rating.toFixed(1),
+          avgGrind: String(shot.grind),
+          lastDate: shot.date,
+          latestShot: shot,
+        })
+      }
+    })
+    return Array.from(map.values())
+  }, [filteredShots])
+
+  const isShelf = activeNav === 'Coffee shelf'
+  const displayedShots = isShelf ? [] : filteredShots
+  const displayedBeans = isShelf ? beans : []
 
   return (
     <main className="app-shell">
@@ -775,7 +848,9 @@ export default function Page() {
                     <p>
                       {activeNav === 'Coffee shelf'
                         ? 'Unique coffees logged in your history.'
-                        : 'Your real espresso extractions.'}
+                        : activeNav === 'My shots'
+                        ? 'Your real espresso extractions.'
+                        : 'The latest pulls from your journal.'}
                     </p>
                   </div>
                   <div className="list-actions">
@@ -807,10 +882,21 @@ export default function Page() {
                 <div className="shots-card">
                   <div className="shots-header">
                     <span>COFFEE</span>
-                    <span>RECIPE</span>
-                    <span>TIME</span>
-                    <span>RATING</span>
-                    <span>BREWED</span>
+                    {isShelf ? (
+                      <>
+                        <span>SHOTS</span>
+                        <span>GRIND</span>
+                        <span>RATING</span>
+                        <span>BREWED</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>RECIPE</span>
+                        <span>TIME</span>
+                        <span>RATING</span>
+                        <span>BREWED</span>
+                      </>
+                    )}
                     <span />
                   </div>
 
@@ -819,6 +905,55 @@ export default function Page() {
                       <Loader2 size={20} className="animate-spin" style={{ margin: '0 auto 8px' }} />
                       <p>Loading your extractions...</p>
                     </div>
+                  ) : isShelf ? (
+                    displayedBeans.length ? (
+                      displayedBeans.map((bean) => (
+                        <BeanCard
+                          key={bean.key}
+                          bean={bean}
+                          onClick={() => setSelectedShot(bean.latestShot)}
+                        />
+                      ))
+                    ) : shots.length > 0 ? (
+                      <div className="no-results" style={{ padding: '40px 20px', textAlign: 'center' }}>
+                        <Search size={32} style={{ margin: '0 auto 12px', opacity: 0.4 }} />
+                        <p style={{ fontWeight: 600, color: '#322f28', marginBottom: '4px' }}>
+                          No beans match your search
+                        </p>
+                        <p style={{ fontSize: '13px', color: '#88857d', marginBottom: '16px' }}>
+                          Try another bean or flavor.
+                        </p>
+                        <button
+                          className="primary-button"
+                          style={{ margin: '0 auto' }}
+                          onClick={() => setSearch('')}
+                        >
+                          <X size={16} /> Clear search
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="no-results" style={{ padding: '40px 20px', textAlign: 'center' }}>
+                        <Bean size={32} style={{ margin: '0 auto 12px', opacity: 0.4 }} />
+                        <p style={{ fontWeight: 600, color: '#322f28', marginBottom: '4px' }}>
+                          {user ? 'No beans on your shelf yet' : 'Welcome to your Espresso Studio'}
+                        </p>
+                        <p style={{ fontSize: '13px', color: '#88857d', marginBottom: '16px' }}>
+                          {user
+                            ? 'Every coffee you log will land here, dial-in history included.'
+                            : 'Sign in to start recording your coffee dial-in notes to your personal database.'}
+                        </p>
+                        <button
+                          className="primary-button"
+                          style={{ margin: '0 auto' }}
+                          onClick={() => {
+                            if (!user) setAuthModalOpen(true)
+                            else setShowLog(true)
+                          }}
+                        >
+                          <Plus size={16} /> {user ? 'Log your first shot' : 'Sign in to get started'}
+                        </button>
+                      </div>
+                    )
                   ) : displayedShots.length ? (
                     displayedShots
                       .slice(0, activeNav === 'Overview' ? 5 : undefined)
@@ -871,6 +1006,16 @@ export default function Page() {
                   )}
                 </div>
 
+                {displayedBeans.length > 0 && (
+                  <div className="list-footer">
+                    <span>
+                      Showing {displayedBeans.length} of {beans.length} beans on your shelf
+                    </span>
+                    <button onClick={() => setActiveNav('My shots')}>
+                      See all shots <ArrowUpRight size={14} />
+                    </button>
+                  </div>
+                )}
                 {displayedShots.length > 0 && (
                   <div className="list-footer">
                     <span>
