@@ -49,6 +49,7 @@ export type Shot = {
 }
 
 // One unique coffee on the shelf, aggregated from its (date-desc) shots.
+// Pre-entered beans without any shots yet have shots === 0 and latestShot null.
 export type BeanSummary = {
   key: string
   name: string
@@ -57,8 +58,20 @@ export type BeanSummary = {
   avgRating: string
   avgGrind: string
   lastDate: string
-  latestShot: Shot
+  latestShot: Shot | null
 }
+
+// A bean pre-entered in the bean section (public.beans row), reusable when
+// logging new shots.
+export type BeanRecord = {
+  id: string
+  name: string
+  roaster: string
+  created_at: string
+}
+
+// Sentinel option value of the "create new bean" entry in the shot dialog.
+const NEW_BEAN_CHOICE = '__new__'
 
 const navItems = [
   { name: 'Overview', icon: Activity },
@@ -176,21 +189,27 @@ function BeanCard({ bean, onClick }: { bean: BeanSummary; onClick: () => void })
         <span>{bean.shots === 1 ? 'shot' : 'shots'}</span>
       </span>
       <span className="shot-time">
-        <Settings2 size={13} /> {bean.avgGrind}
+        <Settings2 size={13} /> {bean.avgGrind || '—'}
       </span>
-      <span
-        className="shot-rating"
-        aria-label={`Average ${bean.avgRating} out of 5 stars`}
-      >
-        {Array.from({ length: 5 }, (_, i) => (
-          <Star
-            key={i}
-            size={12}
-            fill={i < Math.round(Number(bean.avgRating)) ? 'currentColor' : 'none'}
-          />
-        ))}
-      </span>
-      <span className="shot-date">{bean.lastDate}</span>
+      {bean.shots > 0 ? (
+        <span
+          className="shot-rating"
+          aria-label={`Average ${bean.avgRating} out of 5 stars`}
+        >
+          {Array.from({ length: 5 }, (_, i) => (
+            <Star
+              key={i}
+              size={12}
+              fill={i < Math.round(Number(bean.avgRating)) ? 'currentColor' : 'none'}
+            />
+          ))}
+        </span>
+      ) : (
+        <span className="shot-rating" aria-label="No ratings yet">
+          —
+        </span>
+      )}
+      <span className="shot-date">{bean.lastDate || 'Not yet brewed'}</span>
       <ChevronRight className="shot-chevron" size={16} />
     </button>
   )
@@ -222,6 +241,16 @@ export default function Page() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  // Bean section: pre-entered beans + the "Add bean" dialog
+  const [beanCatalog, setBeanCatalog] = useState<BeanRecord[]>([])
+  const [showAddBean, setShowAddBean] = useState(false)
+  const [newBeanName, setNewBeanName] = useState('')
+  const [newBeanRoaster, setNewBeanRoaster] = useState('')
+  const [savingBean, setSavingBean] = useState(false)
+
+  // Shot dialog bean selection: '' (unset) | NEW_BEAN_CHOICE | `${name}|${roaster}`
+  const [beanChoice, setBeanChoice] = useState('')
 
   // `new Date()` differs between the build-time prerender and the time the
   // page is viewed, which caused React hydration error #418 on every load.
@@ -306,13 +335,34 @@ export default function Page() {
     }
   }, [])
 
+  // Fetch pre-entered beans from Supabase
+  const fetchBeans = useCallback(async (userId?: string) => {
+    if (!userId) {
+      setBeanCatalog([])
+      return
+    }
+    try {
+      const { data, error } = await supabase
+        .from('beans')
+        .select('id, name, roaster, created_at')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: true })
+      if (error) throw error
+      if (data) setBeanCatalog(data)
+    } catch (err) {
+      console.error('Error fetching beans:', err)
+    }
+  }, [])
+
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       setUser(data.user)
       if (data.user) {
         fetchShots(data.user.id)
+        fetchBeans(data.user.id)
       } else {
         setShots([])
+        fetchBeans()
         setLoadingShots(false)
       }
     })
@@ -322,8 +372,10 @@ export default function Page() {
       setUser(currentUser)
       if (currentUser) {
         fetchShots(currentUser.id)
+        fetchBeans(currentUser.id)
       } else {
         setShots([])
+        fetchBeans()
         setLoadingShots(false)
       }
     })
@@ -331,7 +383,7 @@ export default function Page() {
     return () => {
       authListener.subscription.unsubscribe()
     }
-  }, [fetchShots])
+  }, [fetchShots, fetchBeans])
 
   const username =
     user?.user_metadata?.username ||
@@ -421,10 +473,34 @@ export default function Page() {
       const grindNum = Number(grind) || 2.5
       const timeNum = Number(time) || 28
 
+      // Ensure the bean exists in the catalog so it can be reused from the
+      // dropdown the next time a shot is logged.
+      const { data: beanRows, error: beanLookupError } = await supabase
+        .from('beans')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('name', beanName)
+        .eq('roaster', roasterName)
+        .limit(1)
+      if (beanLookupError) throw beanLookupError
+
+      let beanId: string | null = beanRows?.[0]?.id ?? null
+      if (!beanId) {
+        const { data: createdBean, error: beanInsertError } = await supabase
+          .from('beans')
+          .insert({ user_id: user.id, name: beanName, roaster: roasterName })
+          .select('id, name, roaster, created_at')
+          .single()
+        if (beanInsertError) throw beanInsertError
+        beanId = createdBean.id
+        setBeanCatalog((prev) => [...prev, createdBean])
+      }
+
       const { data, error } = await supabase
         .from('shots')
         .insert({
           user_id: user.id,
+          bean_id: beanId,
           bean_name: beanName,
           roaster: roasterName,
           dose_grams: doseNum,
@@ -474,6 +550,7 @@ export default function Page() {
         setTime(FORM_DEFAULTS.time)
         setBean(FORM_DEFAULTS.bean)
         setRoaster(FORM_DEFAULTS.roaster)
+        setBeanChoice('')
         setNotes(FORM_DEFAULTS.notes)
         setSelectedFlavors([...FORM_DEFAULTS.selectedFlavors])
         setAcidity(FORM_DEFAULTS.acidity)
@@ -502,25 +579,122 @@ export default function Page() {
     }
   }
 
+  // Pre-enter a bean in the bean section so it can be reused in the shot dialog.
+  async function addBean(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!user) {
+      setAuthModalOpen(true)
+      return
+    }
+    const name = newBeanName.trim()
+    const roasterName = newBeanRoaster.trim() || 'My roaster'
+    if (!name) return
+    if (beanCatalog.some((b) => b.name === name && b.roaster === roasterName)) {
+      alert('This bean is already on your shelf.')
+      return
+    }
+    setSavingBean(true)
+    try {
+      const { data, error } = await supabase
+        .from('beans')
+        .insert({ user_id: user.id, name, roaster: roasterName })
+        .select('id, name, roaster, created_at')
+        .single()
+      if (error) throw error
+      if (data) setBeanCatalog((prev) => [...prev, data])
+      setNewBeanName('')
+      setNewBeanRoaster('')
+      setShowAddBean(false)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Please check your connection'
+      alert(`Could not add bean: ${message}`)
+    } finally {
+      setSavingBean(false)
+    }
+  }
+
   function toggleFlavor(flavor: string) {
     setSelectedFlavors((current) =>
       current.includes(flavor) ? current.filter((item) => item !== flavor) : [...current, flavor]
     )
   }
 
+  // Preselect a bean in the shot dialog: match it against the known beans and
+  // fall back to the "create new" inputs (keeping the values) when unknown.
+  function chooseBean(name: string, roasterName: string) {
+    const match = beanOptions.find((b) => b.name === name && b.roaster === roasterName)
+    setBean(name)
+    setRoaster(roasterName)
+    setBeanChoice(match ? match.key : NEW_BEAN_CHOICE)
+  }
+
+  // Every bean known to the journal for the shot dialog dropdown: pre-entered
+  // catalog entries plus beans that only exist on older shots. Deliberately not
+  // wrapped in useMemo — the derivation is tiny, and manual memoization of this
+  // shape trips react-hooks/preserve-manual-memoization (lint error on main's
+  // toolchain), so keep it as plain code.
+  const allBeans: Array<BeanRecord & { key: string }> = [
+    ...beanCatalog.map((b) => ({ ...b, key: `${b.name}|${b.roaster}` })),
+    ...shots.map((s) => ({
+      key: `${s.bean}|${s.roaster}`,
+      id: '',
+      name: s.bean,
+      roaster: s.roaster,
+      created_at: '',
+    })),
+  ]
+  const beanOptions = allBeans
+    .filter(
+      (option, index) =>
+        allBeans.findIndex(
+          (other) => other.name === option.name && other.roaster === option.roaster
+        ) === index
+    )
+    .sort((a, b) => a.name.localeCompare(b.name) || a.roaster.localeCompare(b.roaster))
+
+  // Without any known beans the dialog starts directly in "create new" mode.
+  const isCreatingNewBean =
+    beanChoice === NEW_BEAN_CHOICE || (beanChoice === '' && beanOptions.length === 0)
+  const selectedBeanLocked = beanChoice !== '' && !isCreatingNewBean
+
   // Unique coffees for the shelf, aggregated from shots (newest-first order),
-  // so the first shot seen per bean is its most recent one.
+  // so the first shot seen per bean is its most recent one. Pre-entered beans
+  // without shots are listed first.
   const beans = useMemo(() => {
     const map = new Map<string, BeanSummary>()
+    beanCatalog
+      .filter((b) =>
+        `${b.name} ${b.roaster}`.toLowerCase().includes(search.toLowerCase())
+      )
+      .forEach((b) => {
+        map.set(`${b.name}|${b.roaster}`, {
+          key: `${b.name}|${b.roaster}`,
+          name: b.name,
+          roaster: b.roaster,
+          shots: 0,
+          avgRating: '',
+          avgGrind: '',
+          lastDate: '',
+          latestShot: null,
+        })
+      })
     filteredShots.forEach((shot) => {
       const key = `${shot.bean}|${shot.roaster}`
       const existing = map.get(key)
       if (existing) {
         existing.shots += 1
-        existing.avgRating = (
-          ((Number(existing.avgRating) * (existing.shots - 1)) + shot.rating) /
-          existing.shots
-        ).toFixed(1)
+        if (existing.latestShot) {
+          existing.avgRating = (
+            ((Number(existing.avgRating) * (existing.shots - 1)) + shot.rating) /
+            existing.shots
+          ).toFixed(1)
+        } else {
+          // First shot for a pre-entered bean fills in its stats.
+          existing.avgRating = shot.rating.toFixed(1)
+          existing.avgGrind = String(shot.grind)
+          existing.lastDate = shot.date
+          existing.latestShot = shot
+        }
       } else {
         map.set(key, {
           key,
@@ -535,7 +709,7 @@ export default function Page() {
       }
     })
     return Array.from(map.values())
-  }, [filteredShots])
+  }, [filteredShots, beanCatalog, search])
 
   const isShelf = activeNav === 'Coffee shelf'
   const displayedShots = isShelf ? [] : filteredShots
@@ -718,19 +892,32 @@ export default function Page() {
                       : 'Sign in to sync your shots and equipment to the cloud.'}
                   </p>
                 </div>
-                <button
-                  className="primary-button"
-                  onClick={() => {
-                    if (!user) {
-                      setAuthModalOpen(true)
-                    } else {
-                      setShowLog(true)
-                      setSaved(false)
-                    }
-                  }}
-                >
-                  <Plus size={17} /> Log a shot
-                </button>
+                <div className="heading-actions">
+                  {isShelf && (
+                    <button
+                      className="secondary-button"
+                      onClick={() => {
+                        if (!user) setAuthModalOpen(true)
+                        else setShowAddBean(true)
+                      }}
+                    >
+                      <Bean size={16} /> Add bean
+                    </button>
+                  )}
+                  <button
+                    className="primary-button"
+                    onClick={() => {
+                      if (!user) {
+                        setAuthModalOpen(true)
+                      } else {
+                        setShowLog(true)
+                        setSaved(false)
+                      }
+                    }}
+                  >
+                    <Plus size={17} /> Log a shot
+                  </button>
+                </div>
               </div>
 
               {activeNav === 'Overview' && (
@@ -817,8 +1004,7 @@ export default function Page() {
                           </span>
                           <button
                             onClick={() => {
-                              setBean(stats.favoriteShot!.bean)
-                              setRoaster(stats.favoriteShot!.roaster)
+                              chooseBean(stats.favoriteShot!.bean, stats.favoriteShot!.roaster)
                               setDose(String(stats.favoriteShot!.dose))
                               setYieldAmount(String(stats.favoriteShot!.yield))
                               setGrind(String(stats.favoriteShot!.grind))
@@ -911,10 +1097,21 @@ export default function Page() {
                         <BeanCard
                           key={bean.key}
                           bean={bean}
-                          onClick={() => setSelectedShot(bean.latestShot)}
+                          onClick={() => {
+                            if (bean.latestShot) {
+                              setSelectedShot(bean.latestShot)
+                            } else if (!user) {
+                              setAuthModalOpen(true)
+                            } else {
+                              // Pre-entered bean without shots: start a shot with it.
+                              chooseBean(bean.name, bean.roaster)
+                              setSaved(false)
+                              setShowLog(true)
+                            }
+                          }}
                         />
                       ))
-                    ) : shots.length > 0 ? (
+                    ) : beans.length > 0 ? (
                       <div className="no-results" style={{ padding: '40px 20px', textAlign: 'center' }}>
                         <Search size={32} style={{ margin: '0 auto 12px', opacity: 0.4 }} />
                         <p style={{ fontWeight: 600, color: '#322f28', marginBottom: '4px' }}>
@@ -1076,23 +1273,86 @@ export default function Page() {
                 <span>01</span> THE RECIPE
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <label className="form-field">
-                  <span>Coffee bean</span>
-                  <input
-                    value={bean}
-                    onChange={(event) => setBean(event.target.value)}
-                    placeholder="e.g. Ethiopia Guji"
-                    required
-                  />
-                </label>
-                <label className="form-field">
-                  <span>Roaster</span>
-                  <input
-                    value={roaster}
-                    onChange={(event) => setRoaster(event.target.value)}
-                    placeholder="e.g. April Coffee"
-                  />
-                </label>
+                {isCreatingNewBean ? (
+                  <>
+                    <label className="form-field">
+                      <span>Bean name</span>
+                      <input
+                        value={bean}
+                        onChange={(event) => setBean(event.target.value)}
+                        placeholder="e.g. Ethiopia Guji"
+                        required
+                      />
+                    </label>
+                    <label className="form-field">
+                      <span>Roaster</span>
+                      <input
+                        value={roaster}
+                        onChange={(event) => setRoaster(event.target.value)}
+                        placeholder="e.g. April Coffee"
+                      />
+                    </label>
+                    {beanOptions.length > 0 && (
+                      <button
+                        type="button"
+                        className="pick-existing-bean"
+                        onClick={() => {
+                          setBean('')
+                          setRoaster('')
+                          setBeanChoice('')
+                        }}
+                      >
+                        ← Choose an existing bean
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <label className="form-field">
+                      <span>Coffee bean</span>
+                      <select
+                        value={beanChoice}
+                        onChange={(event) => {
+                          const value = event.target.value
+                          if (value === NEW_BEAN_CHOICE) {
+                            setBean('')
+                            setRoaster('')
+                          } else if (value) {
+                            const option = beanOptions.find((b) => b.key === value)
+                            if (option) {
+                              setBean(option.name)
+                              setRoaster(option.roaster)
+                            }
+                          }
+                          setBeanChoice(value)
+                        }}
+                        required
+                      >
+                        <option value="" disabled>
+                          Select a bean…
+                        </option>
+                        {beanOptions.map((option) => (
+                          <option key={option.key} value={option.key}>
+                            {option.name} — {option.roaster}
+                          </option>
+                        ))}
+                        <option value={NEW_BEAN_CHOICE}>＋ Create new bean…</option>
+                      </select>
+                    </label>
+                    <label className="form-field">
+                      <span>
+                        Roaster{' '}
+                        {selectedBeanLocked && <small>from selected bean</small>}
+                      </span>
+                      <input
+                        value={roaster}
+                        onChange={(event) => setRoaster(event.target.value)}
+                        placeholder={selectedBeanLocked ? '' : 'e.g. April Coffee'}
+                        readOnly={selectedBeanLocked}
+                      />
+                    </label>
+                  </>
+                )}
               </div>
 
               <div className="recipe-input-grid">
@@ -1268,6 +1528,85 @@ export default function Page() {
         </div>
       )}
 
+      {/* Add Bean Modal */}
+      {showAddBean && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setShowAddBean(false)
+          }}
+        >
+          <section
+            className="log-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="add-bean-title"
+          >
+            <div className="modal-header">
+              <div>
+                <div className="card-eyebrow">
+                  <Bean size={13} /> YOUR BEAN SHELF
+                </div>
+                <h2 id="add-bean-title">Add a bean</h2>
+                <p>Pre-enter a coffee so you can reuse it when logging shots.</p>
+              </div>
+              <button
+                className="modal-close"
+                onClick={() => setShowAddBean(false)}
+                aria-label="Close dialog"
+              >
+                <X size={19} />
+              </button>
+            </div>
+            <form onSubmit={addBean}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <label className="form-field">
+                  <span>Coffee bean</span>
+                  <input
+                    value={newBeanName}
+                    onChange={(event) => setNewBeanName(event.target.value)}
+                    placeholder="e.g. Ethiopia Guji"
+                    required
+                    autoFocus
+                  />
+                </label>
+                <label className="form-field">
+                  <span>
+                    Roaster <small>optional</small>
+                  </span>
+                  <input
+                    value={newBeanRoaster}
+                    onChange={(event) => setNewBeanRoaster(event.target.value)}
+                    placeholder="e.g. April Coffee"
+                  />
+                </label>
+              </div>
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="cancel-button"
+                  onClick={() => setShowAddBean(false)}
+                >
+                  Cancel
+                </button>
+                <button className="primary-button" type="submit" disabled={savingBean}>
+                  {savingBean ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" /> Adding...
+                    </>
+                  ) : (
+                    <>
+                      <Plus size={16} /> Add bean
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+
       {/* View Shot Details Modal */}
       {selectedShot && (
         <div
@@ -1379,8 +1718,7 @@ export default function Page() {
               <button
                 className="primary-button"
                 onClick={() => {
-                  setBean(selectedShot.bean)
-                  setRoaster(selectedShot.roaster)
+                  chooseBean(selectedShot.bean, selectedShot.roaster)
                   setDose(String(selectedShot.dose))
                   setYieldAmount(String(selectedShot.yield))
                   setGrind(String(selectedShot.grind))
@@ -1402,7 +1740,10 @@ export default function Page() {
         onSuccess={() => {
           supabase.auth.getUser().then(({ data }) => {
             setUser(data.user)
-            if (data.user) fetchShots(data.user.id)
+            if (data.user) {
+              fetchShots(data.user.id)
+              fetchBeans(data.user.id)
+            }
           })
         }}
       />

@@ -229,6 +229,9 @@ h1,h2,h3,p { margin-top: 0; }
 .form-field input,.form-field textarea { width: 100%; min-width: 0; border: 1px solid #e8e5dd; border-radius: 6px; background: #fff; color: #434139; padding: 9px 10px; font-size: 10px; outline: none; }
 .form-field input:focus,.form-field textarea:focus { border-color: #a8b39e; }
 .form-field input::placeholder,.form-field textarea::placeholder { color: #b4b0a7; }
+.form-field select { width: 100%; min-width: 0; border: 1px solid #e8e5dd; border-radius: 6px; background: #fff; color: #434139; padding: 9px 10px; font-size: 10px; outline: none; cursor: pointer; }
+.form-field select:focus { border-color: #a8b39e; }
+.form-field input[readonly] { background: #f4f3ef; color: #8a877e; cursor: default; }
 .full-field { margin-bottom: 12px; }
 .recipe-input-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; }
 .number-field { height: 35px; border: 1px solid #e8e5dd; border-radius: 6px; background: #fff; display: flex; align-items: center; padding: 0 9px; color: #9b988e; }
@@ -254,6 +257,11 @@ h1,h2,h3,p { margin-top: 0; }
 .rating-picker { display: flex; gap: 4px; }
 .rating-picker button { display: flex; border: 0; background: transparent; color: #d3ad60; padding: 1px; cursor: pointer; }
 .modal-actions { border-top: 1px solid #ece9e2; padding-top: 13px; display: flex; justify-content: flex-end; gap: 8px; }
+.heading-actions { display: flex; align-items: center; gap: 8px; }
+.secondary-button { min-height: 39px; border: 1px solid #e0ddd5; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 0 15px; white-space: nowrap; color: #5c594f; background: #fff; font-size: 11px; font-weight: 600; cursor: pointer; }
+.secondary-button:hover { border-color: #c9c5bb; background: #faf9f6; }
+.pick-existing-bean { grid-column: 1 / -1; justify-self: start; border: 0; background: transparent; color: #75836a; font-size: 9px; font-weight: 600; cursor: pointer; padding: 0; }
+.pick-existing-bean:hover { color: #53634a; }
 .cancel-button { min-height: 36px; border: 1px solid #e7e4dc; border-radius: 6px; padding: 0 13px; background: #fff; color: #77746b; font-size: 10px; cursor: pointer; }
 .modal-actions .primary-button { min-height: 36px; font-size: 10px; }
 .detail-modal { width: min(100%, 420px); position: relative; padding: 26px; }
@@ -335,6 +343,8 @@ h1,h2,h3,p { margin-top: 0; }
   .page-content { padding: 27px 16px 16px; }
   .page-heading { align-items: flex-start; flex-direction: column; gap: 15px; margin-bottom: 20px; }
   .page-heading .primary-button { align-self: stretch; }
+  .page-heading .heading-actions { align-self: stretch; }
+  .heading-actions button { flex: 1; }
   .page-heading h1 { font-size: 29px; }
   .stats-grid { gap: 8px; }
   .stat-card { height: 97px; padding: 12px; }
