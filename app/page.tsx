@@ -665,7 +665,18 @@ export default function Page() {
     const name = editBeanName.trim()
     const roasterName = editBeanRoaster.trim() || 'My roaster'
     if (!name) return
-    if (beanCatalog.some((b) => b.id !== editingBeanId && b.name === name && b.roaster === roasterName)) {
+    // Block renaming onto any other shelf entry — the catalog alone is not
+    // enough, shot-only beans live on the shelf without a `beans` row.
+    const original = beanCatalog.find((b) => b.id === editingBeanId)
+    const originalKey = original ? `${original.name}|${original.roaster}` : null
+    const newKey = `${name}|${roasterName}`
+    if (
+      newKey !== originalKey &&
+      (beanCatalog.some(
+        (b) => b.id !== editingBeanId && `${b.name}|${b.roaster}` === newKey
+      ) ||
+        beans.some((b) => `${b.name}|${b.roaster}` === newKey))
+    ) {
       alert('This bean is already on your shelf.')
       return
     }
