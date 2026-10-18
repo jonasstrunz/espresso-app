@@ -3,8 +3,11 @@
 --
 -- Test accounts (email confirmation is pre-set because the staging branch
 -- has no SMTP credentials and cannot send confirmation mails):
---   staging@example.com / StagingTest123!  (main tester)
---   taster@example.com   / TasterTest123!  (second user, for RLS checks)
+--   staging@example.com / StagingTest123!  (main tester, full machine setup)
+--   taster@example.com   / TasterTest123!   (second user, legacy machine
+--                                            settings, for RLS checks)
+--   newbie@example.com   / NewbieTest123!   (no equipment at all, exercises
+--                                            the guided setup wizard)
 
 begin;
 
@@ -46,6 +49,19 @@ insert into auth.users (
     now(), now(),
     '', '', '', '', '', '',
     ''
+  ),
+  (
+    '99999999-9999-4999-8999-999999999999',
+    '00000000-0000-0000-0000-000000000000',
+    'authenticated', 'authenticated',
+    'newbie@example.com',
+    '$2a$10$YE4hIrIjMc6onikIty40kOaQQdVBzMs7iLUrvpV4SDwdd124o6dHO',
+    now(),
+    '{"provider":"email","providers":["email"]}'::jsonb,
+    '{"username":"Fresh Barista"}'::jsonb,
+    now(), now(),
+    '', '', '', '', '', '',
+    ''
   )
 on conflict (id) do nothing;
 
@@ -69,14 +85,30 @@ insert into auth.identities (
     'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
     '{"sub": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "email": "taster@example.com", "username": "Second Taster", "email_verified": true, "phone_verified": false}'::jsonb,
     'email', now(), now(), now()
+  ),
+  (
+    'ffffffff-ffff-4fff-8fff-fffffffff003',
+    '99999999-9999-4999-8999-999999999999',
+    '99999999-9999-4999-8999-999999999999',
+    '{"sub": "99999999-9999-4999-8999-999999999999", "email": "newbie@example.com", "username": "Fresh Barista", "email_verified": true, "phone_verified": false}'::jsonb,
+    'email', now(), now(), now()
   )
 on conflict (id) do nothing;
 
--- 3. Equipment
+-- 3. Equipment. staging@example.com has the new machine-setup settings shape;
+--    taster@example.com deliberately keeps the legacy shape (free-text style
+--    keys) so the app's backwards-compatible parsing stays exercised.
+--    newbie@example.com gets no equipment at all: logging in must guide them
+--    through the setup wizard.
 insert into public.equipment (id, user_id, type, brand, model, nickname, settings) values
   ('cccccccc-cccc-4ccc-8ccc-ccccccccccc1', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'machine',
    'La Marzocco', 'Linea Mini', 'Linea Mini (staging)',
-   '{"temp_celsius": 93, "pressure_bar": 9}'::jsonb),
+   '{"machineDetails": "Dual boiler · 58 mm portafilter", "basketDiameter": "58",
+     "tempMode": "C", "defaultTemp": "93",
+     "tempStepMin": "1", "tempStepMax": "5", "tempStepMinLabel": "cold", "tempStepMaxLabel": "hot",
+     "preinfusionEnabled": true, "preinfusionSeconds": "5",
+     "grinder": "Niche Zero", "grinderDetails": "Single dose · 63 mm conical burrs",
+     "grindMin": "1.5", "grindMax": "4.5", "dialDirection": "cw"}'::jsonb),
   ('cccccccc-cccc-4ccc-8ccc-ccccccccccc2', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'grinder',
    'Niche', 'Zero', 'Niche Zero (staging)',
    '{"stepless": true}'::jsonb),

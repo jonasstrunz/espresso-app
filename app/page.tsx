@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState, useCallback, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useState, useCallback, useRef, useSyncExternalStore } from 'react'
 import {
   Activity,
   ArrowUpRight,
@@ -9,8 +9,6 @@ import {
   ChevronRight,
   Clock3,
   Coffee,
-  Droplets,
-  Gauge,
   LogIn,
   LogOut,
   Menu,
@@ -30,6 +28,24 @@ import {
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { AuthModal } from '@/components/auth-modal'
+import { SetupWizard } from '@/components/setup-wizard'
+import {
+  DIAL_DIRECTION_LABELS,
+  TEMP_MODE_LABELS,
+  formatShotTemp,
+  formatTempDisplay,
+  grindRangeOf,
+  parseEquipmentSetup,
+  saveMachineSetup,
+  shotTemperatureFromRow,
+  tempBoundsOf,
+  tempUnitSuffix,
+  validateMachineSetupStep,
+  type DialDirection,
+  type MachineSetup,
+  type ShotTemperature,
+  type TempMode,
+} from '@/components/machine-setup'
 import type { User } from '@supabase/supabase-js'
 
 export type Shot = {
@@ -50,6 +66,7 @@ export type Shot = {
   acidity: number
   bitterness: number
   notes: string
+  temp: ShotTemperature | null
   created_at: string
 }
 
@@ -265,6 +282,7 @@ export default function Page() {
   const [yieldAmount, setYieldAmount] = useState(FORM_DEFAULTS.yieldAmount)
   const [grind, setGrind] = useState(FORM_DEFAULTS.grind)
   const [time, setTime] = useState(FORM_DEFAULTS.time)
+  const [temp, setTemp] = useState('')
   const [bean, setBean] = useState(FORM_DEFAULTS.bean)
   const [roaster, setRoaster] = useState(FORM_DEFAULTS.roaster)
   const [notes, setNotes] = useState(FORM_DEFAULTS.notes)
@@ -297,6 +315,15 @@ export default function Page() {
 
   // Shot dialog bean selection: '' (unset) | NEW_BEAN_CHOICE | `${name}|${roaster}`
   const [beanChoice, setBeanChoice] = useState('')
+
+  // Machine setup from the equipment table. null = no machine set up yet,
+  // which guides the user through the setup wizard on login.
+  const [machineSetup, setMachineSetup] = useState<MachineSetup | null>(null)
+  const [setupLoaded, setSetupLoaded] = useState(false)
+  const [wizardOpen, setWizardOpen] = useState(false)
+  // User that dismissed the wizard this session — session refreshes must not
+  // nag them again, but a different login should still be guided.
+  const wizardDismissedByRef = useRef<string | null>(null)
 
   // `new Date()` differs between the build-time prerender and the time the
   // page is viewed, which caused React hydration error #418 on every load.
@@ -382,6 +409,7 @@ export default function Page() {
             acidity: Number(item.acidity) || 3,
             bitterness: Number(item.bitterness) || 2,
             notes: item.notes || '',
+            temp: shotTemperatureFromRow(item),
             created_at: item.created_at,
           }
         })
@@ -413,15 +441,42 @@ export default function Page() {
     }
   }, [])
 
+  // Fetch the machine setup; a signed-in user without one gets the wizard.
+  const fetchMachineSetup = useCallback(async (userId?: string) => {
+    if (!userId) {
+      wizardDismissedByRef.current = null
+      setMachineSetup(null)
+      setSetupLoaded(false)
+      setWizardOpen(false)
+      return
+    }
+    try {
+      const { data, error } = await supabase
+        .from('equipment')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+      if (error) throw error
+      const parsed = parseEquipmentSetup(data)
+      setMachineSetup(parsed)
+      setSetupLoaded(true)
+      if (!parsed && wizardDismissedByRef.current !== userId) setWizardOpen(true)
+    } catch (err) {
+      console.error('Error fetching machine setup:', err)
+    }
+  }, [])
+
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       setUser(data.user)
       if (data.user) {
         fetchShots(data.user.id)
         fetchBeans(data.user.id)
+        fetchMachineSetup(data.user.id)
       } else {
         setShots([])
         fetchBeans()
+        fetchMachineSetup()
         setLoadingShots(false)
       }
     })
@@ -432,9 +487,11 @@ export default function Page() {
       if (currentUser) {
         fetchShots(currentUser.id)
         fetchBeans(currentUser.id)
+        fetchMachineSetup(currentUser.id)
       } else {
         setShots([])
         fetchBeans()
+        fetchMachineSetup()
         setLoadingShots(false)
       }
     })
@@ -442,7 +499,7 @@ export default function Page() {
     return () => {
       authListener.subscription.unsubscribe()
     }
-  }, [fetchShots, fetchBeans])
+  }, [fetchShots, fetchBeans, fetchMachineSetup])
 
   const username =
     user?.user_metadata?.username ||
@@ -516,12 +573,40 @@ export default function Page() {
     }
   }, [shots])
 
+  // Derived validation for the machine-dependent shot fields: the grind must
+  // stay inside the range defined in the machine setup, the temperature
+  // follows the machine's unit (or step scale).
+  const grindRange = grindRangeOf(machineSetup)
+  const grindValue = grind.trim() === '' ? NaN : Number(grind)
+  const grindError =
+    !Number.isFinite(grindValue)
+      ? 'Enter a grind setting.'
+      : grindRange && (grindValue < grindRange.min || grindValue > grindRange.max)
+        ? `Grind must be between ${grindRange.min} and ${grindRange.max} — your machine's range.`
+        : null
+
+  const shotTempMode: ShotTemperature['unit'] =
+    machineSetup ? (machineSetup.tempMode === 'steps' ? 'step' : machineSetup.tempMode) : 'C'
+  const tempBounds = tempBoundsOf(machineSetup)
+  const tempValue = temp.trim() === '' ? NaN : Number(temp)
+  const tempError =
+    temp.trim() === ''
+      ? null
+      : !Number.isFinite(tempValue)
+        ? 'Enter a temperature.'
+        : tempBounds && (tempValue < tempBounds.min || tempValue > tempBounds.max)
+          ? `Temperature must be between ${tempBounds.min} and ${tempBounds.max}${
+              shotTempMode === 'step' ? ' (steps)' : ` °${shotTempMode}`
+            }.`
+          : null
+
   async function saveShot(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!user) {
       setAuthModalOpen(true)
       return
     }
+    if (grindError || tempError) return
 
     setSaving(true)
     try {
@@ -531,6 +616,8 @@ export default function Page() {
       const yieldNum = Number(yieldAmount) || 36
       const grindNum = Number(grind) || 2.5
       const timeNum = Number(time) || 28
+      const hasTemp = temp.trim() !== '' && Number.isFinite(Number(temp))
+      const tempNum = hasTemp ? Number(temp) : null
 
       // Ensure the bean exists in the catalog so it can be reused from the
       // dropdown the next time a shot is logged.
@@ -566,6 +653,18 @@ export default function Page() {
           yield_grams: yieldNum,
           grind_setting: grindNum,
           duration_seconds: timeNum,
+          // Store the temperature exactly as entered; temp_celsius keeps the
+          // canonical Celsius value for C/F so older readers keep working.
+          temp_value: tempNum,
+          temp_unit: tempNum !== null ? shotTempMode : null,
+          temp_celsius:
+            tempNum === null
+              ? null
+              : shotTempMode === 'C'
+                ? tempNum
+                : shotTempMode === 'F'
+                  ? Math.round(((tempNum - 32) * 5) / 9 * 10) / 10
+                  : null,
           rating,
           flavors: selectedFlavors,
           acidity,
@@ -593,6 +692,7 @@ export default function Page() {
           acidity: Number(data.acidity),
           bitterness: Number(data.bitterness),
           notes: data.notes || '',
+          temp: shotTemperatureFromRow(data),
           created_at: data.created_at,
         }
         setShots((prev) => [created, ...prev])
@@ -608,6 +708,7 @@ export default function Page() {
         setYieldAmount(FORM_DEFAULTS.yieldAmount)
         setGrind(FORM_DEFAULTS.grind)
         setTime(FORM_DEFAULTS.time)
+        setTemp(machineSetup?.defaultTemp ?? '')
         setBean(FORM_DEFAULTS.bean)
         setRoaster(FORM_DEFAULTS.roaster)
         setBeanChoice('')
@@ -765,6 +866,23 @@ export default function Page() {
     )
   }
 
+  // Open the shot dialog seeded from the machine setup: the grind is clamped
+  // into the machine's range (also for recipes logged before the range
+  // existed) and the temperature starts at the machine's default.
+  function openLogDialog() {
+    const range = grindRangeOf(machineSetup)
+    if (range) {
+      setGrind((current) => {
+        if (current.trim() === '') return current
+        const value = Number(current)
+        if (!Number.isFinite(value)) return current
+        return String(Math.min(Math.max(value, range.min), range.max))
+      })
+    }
+    setTemp(machineSetup?.defaultTemp ?? '')
+    setShowLog(true)
+  }
+
   // Preselect a bean in the shot dialog: match it against the known beans and
   // fall back to the "create new" inputs (keeping the values) when unknown.
   function chooseBean(name: string, roasterName: string) {
@@ -914,7 +1032,13 @@ export default function Page() {
           </span>
           <span className="setup-copy">
             <strong>Espresso setup</strong>
-            <small>{user ? 'Custom equipment' : 'Set your gear'}</small>
+            <small>
+              {!user
+                ? 'Set your gear'
+                : setupLoaded && !machineSetup
+                  ? 'Setup needed'
+                  : 'Custom equipment'}
+            </small>
           </span>
           <ChevronRight size={15} />
         </button>
@@ -1023,7 +1147,14 @@ export default function Page() {
 
         <div className="page-content">
           {activeNav === 'Setup' ? (
-            <SetupPanel user={user} onOpenAuth={() => setAuthModalOpen(true)} />
+            <SetupPanel
+              user={user}
+              setup={machineSetup}
+              setupLoaded={setupLoaded}
+              onOpenAuth={() => setAuthModalOpen(true)}
+              onOpenWizard={() => setWizardOpen(true)}
+              onSaved={(saved) => setMachineSetup(saved)}
+            />
           ) : (
             <>
               <div className="page-heading">
@@ -1068,7 +1199,7 @@ export default function Page() {
                       if (!user) {
                         setAuthModalOpen(true)
                       } else {
-                        setShowLog(true)
+                        openLogDialog()
                         setSaved(false)
                       }
                     }}
@@ -1167,7 +1298,7 @@ export default function Page() {
                               setYieldAmount(String(stats.favoriteShot!.yield))
                               setGrind(String(stats.favoriteShot!.grind))
                               setTime(String(stats.favoriteShot!.time))
-                              setShowLog(true)
+                              openLogDialog()
                             }}
                           >
                             Brew this again <ArrowUpRight size={14} />
@@ -1265,7 +1396,7 @@ export default function Page() {
                               // Pre-entered bean without shots: start a shot with it.
                               chooseBean(bean.name, bean.roaster)
                               setSaved(false)
-                              setShowLog(true)
+                              openLogDialog()
                             }
                           }}
                         />
@@ -1303,7 +1434,7 @@ export default function Page() {
                           style={{ margin: '0 auto' }}
                           onClick={() => {
                             if (!user) setAuthModalOpen(true)
-                            else setShowLog(true)
+                            else openLogDialog()
                           }}
                         >
                           <Plus size={16} /> {user ? 'Log your first shot' : 'Sign in to get started'}
@@ -1353,7 +1484,7 @@ export default function Page() {
                         style={{ margin: '0 auto' }}
                         onClick={() => {
                           if (!user) setAuthModalOpen(true)
-                          else setShowLog(true)
+                          else openLogDialog()
                         }}
                       >
                         <Plus size={16} /> {user ? 'Log your first shot' : 'Sign in to get started'}
@@ -1548,20 +1679,6 @@ export default function Page() {
                   </div>
                 </label>
                 <label className="form-field">
-                  <span>Grind setting</span>
-                  <div className="number-field">
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      value={grind}
-                      onChange={(event) => setGrind(event.target.value)}
-                      required
-                    />
-                    <Settings2 size={14} />
-                  </div>
-                </label>
-                <label className="form-field">
                   <span>Pull time</span>
                   <div className="number-field">
                     <input
@@ -1575,7 +1692,79 @@ export default function Page() {
                     <span>s</span>
                   </div>
                 </label>
+                <label className="form-field">
+                  <span>
+                    Water temperature <small>optional</small>
+                  </span>
+                  <div className="number-field">
+                    <input
+                      type="number"
+                      step={shotTempMode === 'step' ? '1' : '0.5'}
+                      min={tempBounds?.min}
+                      max={tempBounds?.max}
+                      value={temp}
+                      onChange={(event) => setTemp(event.target.value)}
+                      aria-label="Water temperature"
+                    />
+                    <span>{tempUnitSuffix(machineSetup?.tempMode ?? 'C')}</span>
+                  </div>
+                  {shotTempMode === 'step' && machineSetup && (
+                    <span className="field-hint">
+                      {machineSetup.tempStepMin} ({machineSetup.tempStepMinLabel || 'min'}) –{' '}
+                      {machineSetup.tempStepMax} ({machineSetup.tempStepMaxLabel || 'max'})
+                    </span>
+                  )}
+                  {tempError && <span className="field-error">{tempError}</span>}
+                </label>
               </div>
+
+              <label className="form-field grind-block">
+                <span>
+                  Grind setting{' '}
+                  {grindRange && (
+                    <small>
+                      your machine: {grindRange.min} – {grindRange.max}
+                    </small>
+                  )}
+                </span>
+                <div className="grind-control-row">
+                  {grindRange && (
+                    <input
+                      className="grind-slider"
+                      type="range"
+                      min={grindRange.min}
+                      max={grindRange.max}
+                      step="0.1"
+                      value={
+                        Number.isFinite(grindValue)
+                          ? Math.min(Math.max(grindValue, grindRange.min), grindRange.max)
+                          : grindRange.min
+                      }
+                      onChange={(event) => setGrind(event.target.value)}
+                      aria-label="Grind setting slider"
+                    />
+                  )}
+                  <div className="number-field grind-number">
+                    <input
+                      type="number"
+                      step="0.1"
+                      min={grindRange ? grindRange.min : 0}
+                      max={grindRange ? grindRange.max : undefined}
+                      value={grind}
+                      onChange={(event) => setGrind(event.target.value)}
+                      required
+                    />
+                    <Settings2 size={14} />
+                  </div>
+                </div>
+                {grindRange && (
+                  <div className="range-caption">
+                    <span>{grindRange.min}</span>
+                    <span>{grindRange.max}</span>
+                  </div>
+                )}
+                {grindError && <span className="field-error">{grindError}</span>}
+              </label>
 
               <div className="form-section-title tasting-title">
                 <span>02</span> THE TASTING NOTES
@@ -1873,7 +2062,12 @@ export default function Page() {
             <div className="eyebrow">{selectedShot.date.toUpperCase()}</div>
             <h2 id="detail-title">{selectedShot.bean}</h2>
             <p className="detail-roaster">{selectedShot.roaster}</p>
-            <div className="detail-recipe">
+            <div
+              className="detail-recipe"
+              style={{
+                gridTemplateColumns: `repeat(${selectedShot.temp ? 5 : 4}, 1fr)`,
+              }}
+            >
               <div>
                 <span>DOSE</span>
                 <strong>{selectedShot.dose}g</strong>
@@ -1890,6 +2084,12 @@ export default function Page() {
                 <span>TIME</span>
                 <strong>{selectedShot.time}s</strong>
               </div>
+              {selectedShot.temp && (
+                <div>
+                  <span>TEMP</span>
+                  <strong>{formatShotTemp(selectedShot.temp)}</strong>
+                </div>
+              )}
             </div>
             <div className="detail-rating">
               {Array.from({ length: 5 }, (_, index) => (
@@ -1962,7 +2162,7 @@ export default function Page() {
                   setGrind(String(selectedShot.grind))
                   setTime(String(selectedShot.time))
                   setSelectedShot(null)
-                  setShowLog(true)
+                  openLogDialog()
                 }}
               >
                 Use recipe
@@ -1970,6 +2170,22 @@ export default function Page() {
             </div>
           </section>
         </div>
+      )}
+
+      {user && wizardOpen && (
+        <SetupWizard
+          userId={user.id}
+          initial={machineSetup}
+          onClose={() => {
+            wizardDismissedByRef.current = user.id
+            setWizardOpen(false)
+          }}
+          onSaved={(saved) => {
+            setMachineSetup(saved)
+            setWizardOpen(false)
+            setActiveNav('Setup')
+          }}
+        />
       )}
 
       <AuthModal
@@ -1981,6 +2197,7 @@ export default function Page() {
             if (data.user) {
               fetchShots(data.user.id)
               fetchBeans(data.user.id)
+              fetchMachineSetup(data.user.id)
             }
           })
         }}
@@ -2054,144 +2271,347 @@ function TasteMeter({
 
 function SetupPanel({
   user,
+  setup,
+  setupLoaded,
   onOpenAuth,
+  onOpenWizard,
+  onSaved,
 }: {
   user: User | null
+  setup: MachineSetup | null
+  setupLoaded: boolean
   onOpenAuth: () => void
+  onOpenWizard: () => void
+  onSaved: (saved: MachineSetup) => void
 }) {
   const [isEditing, setIsEditing] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [setup, setSetup] = useState({
-    machine: 'La Marzocco Linea Mini',
-    machineDetails: 'Dual boiler · 58mm portafilter',
-    basketSize: '18g precision',
-    temperature: '93°C',
-    preinfusion: '5 seconds',
-    grinder: 'Niche Zero',
-    grinderDetails: 'Single dose · 63mm conical burrs',
-    grindRange: '1.8 — 3.2',
-    dialDirection: 'Clockwise = finer',
-    doseRange: '18.0 — 18.5g',
-    water: 'Third Wave Water',
-    basket: 'VST 18g ridgeless',
-  })
+  const [draft, setDraft] = useState<MachineSetup | null>(null)
 
-  // Load user equipment if authenticated
-  useEffect(() => {
-    if (!user) return
-    supabase
-      .from('equipment')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
-      .then(({ data, error }) => {
-        if (error) {
-          console.error('Error fetching equipment:', error)
-          return
-        }
-        if (data && data.length > 0) {
-          const machineItem = data.find((e: any) => e.type === 'machine')
-          const grinderItem = data.find((e: any) => e.type === 'grinder')
-          setSetup((prev) => ({
-            ...prev,
-            machine: machineItem ? `${machineItem.brand} ${machineItem.model}` : prev.machine,
-            grinder: grinderItem ? `${grinderItem.brand} ${grinderItem.model}` : prev.grinder,
-            ...(machineItem?.settings || {}),
-            ...(grinderItem?.settings || {}),
-          }))
-        }
-      })
-  }, [user])
+  const editing = isEditing && draft !== null
+
+  function startEditing() {
+    if (!setup) return
+    setDraft({ ...setup })
+    setIsEditing(true)
+  }
+
+  function edit(patch: Partial<MachineSetup>) {
+    setDraft((current) => (current ? { ...current, ...patch } : current))
+  }
 
   async function handleSave() {
-    if (!user) {
-      setIsEditing(false)
+    if (!user || !draft) return
+    const problems = [
+      validateMachineSetupStep(draft, 'machine'),
+      validateMachineSetupStep(draft, 'basket'),
+      validateMachineSetupStep(draft, 'grinding'),
+      validateMachineSetupStep(draft, 'temperature'),
+      validateMachineSetupStep(draft, 'preinfusion'),
+    ].filter(Boolean)
+    if (problems.length > 0) {
+      alert(`Please fix your setup: ${problems[0]}`)
       return
     }
     setSaving(true)
     try {
-      const payloads = [
-        {
-          type: 'machine',
-          brand: setup.machine.split(' ')[0] || 'Espresso',
-          model: setup.machine.split(' ').slice(1).join(' ') || 'Machine',
-          settings: {
-            machineDetails: setup.machineDetails,
-            basketSize: setup.basketSize,
-            temperature: setup.temperature,
-            preinfusion: setup.preinfusion,
-            water: setup.water,
-            basket: setup.basket,
-          },
-        },
-        {
-          type: 'grinder',
-          brand: setup.grinder.split(' ')[0] || 'Coffee',
-          model: setup.grinder.split(' ').slice(1).join(' ') || 'Grinder',
-          settings: {
-            grinderDetails: setup.grinderDetails,
-            grindRange: setup.grindRange,
-            dialDirection: setup.dialDirection,
-            doseRange: setup.doseRange,
-          },
-        },
-      ]
-
-      for (const payload of payloads) {
-        // Update the existing row instead of inserting a new one — upsert without
-        // a unique constraint on (user_id, type) used to create duplicates.
-        const { data: existing, error: selectError } = await supabase
-          .from('equipment')
-          .select('id')
-          .eq('user_id', user.id)
-          .eq('type', payload.type)
-          .order('created_at', { ascending: false })
-          .limit(1)
-        if (selectError) throw selectError
-
-        if (existing && existing.length > 0) {
-          const { error } = await supabase
-            .from('equipment')
-            .update({
-              brand: payload.brand,
-              model: payload.model,
-              settings: payload.settings,
-            })
-            .eq('id', existing[0].id)
-          if (error) throw error
-        } else {
-          const { error } = await supabase.from('equipment').insert({
-            user_id: user.id,
-            ...payload,
-          })
-          if (error) throw error
-        }
-      }
+      const saved = await saveMachineSetup(user.id, draft)
+      onSaved(saved)
       setIsEditing(false)
-    } catch (err: any) {
-      alert(`Could not save equipment: ${err.message}`)
+      setDraft(null)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Please check your connection'
+      alert(`Could not save setup: ${message}`)
     } finally {
       setSaving(false)
     }
   }
 
-  function field(key: keyof typeof setup, label: string) {
+  function row(key: string, label: string, display: React.ReactNode, control?: React.ReactNode) {
     return (
       <div key={key}>
         <span>{label}</span>
-        {isEditing ? (
+        {editing ? control : <strong>{display}</strong>}
+      </div>
+    )
+  }
+
+  const grindRange = setup ? grindRangeOf(setup) : null
+  const mode = draft?.tempMode ?? setup?.tempMode ?? 'C'
+
+  const basketControl = (
+    <span className="setup-input-pair">
+      <input
+        className="setup-edit-input"
+        type="number"
+        inputMode="decimal"
+        min={30}
+        max={100}
+        aria-label="Basket diameter"
+        placeholder="54"
+        value={draft?.basketDiameter ?? ''}
+        onChange={(event) => edit({ basketDiameter: event.target.value })}
+      />
+      <small>mm</small>
+    </span>
+  )
+
+  const tempModeControl = (
+    <select
+      className="setup-edit-input"
+      aria-label="Temperature mode"
+      value={draft?.tempMode ?? 'C'}
+      onChange={(event) => edit({ tempMode: event.target.value as TempMode })}
+    >
+      {(Object.keys(TEMP_MODE_LABELS) as TempMode[]).map((tempMode) => (
+        <option key={tempMode} value={tempMode}>
+          {TEMP_MODE_LABELS[tempMode]}
+        </option>
+      ))}
+    </select>
+  )
+
+  const tempValueControl = (
+    <span className="setup-input-pair">
+      <input
+        className="setup-edit-input"
+        type="number"
+        inputMode="decimal"
+        step={mode === 'steps' ? '1' : '0.5'}
+        aria-label="Default water temperature"
+        placeholder={mode === 'C' ? '93' : mode === 'F' ? '199' : '3'}
+        value={draft?.defaultTemp ?? ''}
+        onChange={(event) => edit({ defaultTemp: event.target.value })}
+      />
+      <small>{tempUnitSuffix(mode)}</small>
+    </span>
+  )
+
+  const preinfusionControl = (
+    <span className="setup-input-pair">
+      <input
+        type="checkbox"
+        aria-label="Pre-infusion enabled"
+        checked={draft?.preinfusionEnabled ?? false}
+        onChange={(event) => edit({ preinfusionEnabled: event.target.checked })}
+      />
+      {(draft?.preinfusionEnabled ?? false) && (
+        <>
           <input
             className="setup-edit-input"
-            aria-label={label}
-            value={setup[key]}
-            onChange={(event) =>
-              setSetup((current) => ({ ...current, [key]: event.target.value }))
-            }
+            type="number"
+            min={0}
+            max={60}
+            step={1}
+            aria-label="Pre-infusion seconds"
+            value={draft?.preinfusionSeconds ?? ''}
+            onChange={(event) => edit({ preinfusionSeconds: event.target.value })}
           />
-        ) : (
-          <strong>{setup[key]}</strong>
-        )}
-      </div>
+          <small>s</small>
+        </>
+      )}
+    </span>
+  )
+
+  const grindRangeControl = (
+    <span className="setup-input-pair">
+      <input
+        className="setup-edit-input"
+        type="number"
+        inputMode="decimal"
+        step="any"
+        aria-label="Lowest grind setting"
+        placeholder="1"
+        value={draft?.grindMin ?? ''}
+        onChange={(event) => edit({ grindMin: event.target.value })}
+      />
+      <small>—</small>
+      <input
+        className="setup-edit-input"
+        type="number"
+        inputMode="decimal"
+        step="any"
+        aria-label="Highest grind setting"
+        placeholder="5"
+        value={draft?.grindMax ?? ''}
+        onChange={(event) => edit({ grindMax: event.target.value })}
+      />
+    </span>
+  )
+
+  const dialControl = (
+    <select
+      className="setup-edit-input"
+      aria-label="Dial direction"
+      value={draft?.dialDirection ?? 'cw'}
+      onChange={(event) => edit({ dialDirection: event.target.value as DialDirection })}
+    >
+      {(Object.keys(DIAL_DIRECTION_LABELS) as DialDirection[]).map((direction) => (
+        <option key={direction} value={direction}>
+          {DIAL_DIRECTION_LABELS[direction]}
+        </option>
+      ))}
+    </select>
+  )
+
+  function textControl(
+    field: 'machine' | 'machineDetails' | 'grinder' | 'grinderDetails',
+    label: string,
+    placeholder = ''
+  ) {
+    return (
+      <input
+        className="setup-edit-input"
+        aria-label={label}
+        placeholder={placeholder}
+        value={draft?.[field] ?? ''}
+        onChange={(event) => edit({ [field]: event.target.value })}
+      />
+    )
+  }
+
+  const specs = setup ? (
+    <div className="setup-specs">
+      {row(
+        'basket',
+        'Basket diameter',
+        setup.basketDiameter ? `${setup.basketDiameter} mm` : '—',
+        basketControl
+      )}
+      {row('tempMode', 'Water temperature mode', TEMP_MODE_LABELS[setup.tempMode], tempModeControl)}
+      {setup.tempMode === 'steps' ? (
+        <>
+          {row(
+            'tempSteps',
+            'Temperature steps',
+            `${setup.tempStepMin} (${setup.tempStepMinLabel || 'min'}) – ${setup.tempStepMax} (${
+              setup.tempStepMaxLabel || 'max'
+            })`,
+            <span className="setup-input-pair">
+              <input
+                className="setup-edit-input"
+                type="number"
+                step="any"
+                aria-label="First temperature step"
+                value={draft?.tempStepMin ?? ''}
+                onChange={(event) => edit({ tempStepMin: event.target.value })}
+              />
+              <small>—</small>
+              <input
+                className="setup-edit-input"
+                type="number"
+                step="any"
+                aria-label="Last temperature step"
+                value={draft?.tempStepMax ?? ''}
+                onChange={(event) => edit({ tempStepMax: event.target.value })}
+              />
+            </span>
+          )}
+          {row(
+            'tempStepLabels',
+            'Step labels',
+            `${setup.tempStepMinLabel || '—'} / ${setup.tempStepMaxLabel || '—'}`,
+            <span className="setup-input-pair">
+              <input
+                className="setup-edit-input"
+                aria-label="First step label"
+                placeholder="cold"
+                value={draft?.tempStepMinLabel ?? ''}
+                onChange={(event) => edit({ tempStepMinLabel: event.target.value })}
+              />
+              <input
+                className="setup-edit-input"
+                aria-label="Last step label"
+                placeholder="hot"
+                value={draft?.tempStepMaxLabel ?? ''}
+                onChange={(event) => edit({ tempStepMaxLabel: event.target.value })}
+              />
+            </span>
+          )}
+        </>
+      ) : null}
+      {row('defaultTemp', 'Default temperature', formatTempDisplay(setup), tempValueControl)}
+      {row(
+        'preinfusion',
+        'Pre-infusion',
+        setup.preinfusionEnabled ? `${setup.preinfusionSeconds} s` : 'Off',
+        preinfusionControl
+      )}
+      {row(
+        'grindRange',
+        'Grind range',
+        grindRange ? `${grindRange.min} — ${grindRange.max}` : '—',
+        grindRangeControl
+      )}
+      {row('dialDirection', 'Dial direction', DIAL_DIRECTION_LABELS[setup.dialDirection], dialControl)}
+      {row('grinder', 'Grinder', setup.grinder || 'Integrated', textControl('grinder', 'Grinder'))}
+      {row(
+        'grinderDetails',
+        'Grinder details',
+        setup.grinderDetails || '—',
+        textControl('grinderDetails', 'Grinder details')
+      )}
+    </div>
+  ) : null
+
+  let bodyContent: React.ReactNode
+  if (!user) {
+    bodyContent = (
+      <>
+        <h2>Set up your espresso machine</h2>
+        <p>Sign in to record your machine, basket, grinding and temperature defaults.</p>
+        <button className="primary-button" onClick={onOpenAuth}>
+          <LogIn size={16} /> Sign in to set up
+        </button>
+      </>
+    )
+  } else if (!setupLoaded) {
+    bodyContent = (
+      <>
+        <h2>Loading your setup…</h2>
+        <p>Fetching your saved machine from the cloud.</p>
+      </>
+    )
+  } else if (!setup) {
+    bodyContent = (
+      <>
+        <h2>No machine set up yet</h2>
+        <p>
+          Answer a few questions about your machine once — basket, grinding, temperature and
+          pre-infusion — and every shot log will adapt to it.
+        </p>
+        <button className="primary-button" onClick={onOpenWizard}>
+          <Settings2 size={16} /> Set up your machine
+        </button>
+      </>
+    )
+  } else if (editing && draft) {
+    bodyContent = (
+      <>
+        <input
+          className="setup-title-input"
+          aria-label="Espresso machine"
+          placeholder="e.g. La Marzocco Linea Mini"
+          value={draft.machine}
+          onChange={(event) => edit({ machine: event.target.value })}
+        />
+        <input
+          className="setup-subtitle-input"
+          aria-label="Machine details"
+          placeholder="e.g. Dual boiler · 58 mm portafilter"
+          value={draft.machineDetails}
+          onChange={(event) => edit({ machineDetails: event.target.value })}
+        />
+        {specs}
+      </>
+    )
+  } else {
+    bodyContent = (
+      <>
+        <h2>{setup.machine}</h2>
+        <p>{setup.machineDetails || 'No additional details.'}</p>
+        {specs}
+      </>
     )
   }
 
@@ -2205,8 +2625,8 @@ function SetupPanel({
           </h1>
           <p className="page-subtitle">
             {user
-              ? 'Customize and sync your machines, grinders, and presets.'
-              : 'Sign in to customize and save your personal equipment.'}
+              ? 'Your machine defaults — the shot log builds on them.'
+              : 'Sign in to set up your espresso machine.'}
           </p>
         </div>
         <button
@@ -2216,13 +2636,25 @@ function SetupPanel({
               onOpenAuth()
               return
             }
+            if (!setup) {
+              onOpenWizard()
+              return
+            }
             if (isEditing) handleSave()
-            else setIsEditing(true)
+            else startEditing()
           }}
           disabled={saving}
         >
           {saving ? (
             <Loader2 size={16} className="animate-spin" />
+          ) : !user ? (
+            <>
+              <LogIn size={16} /> Sign in
+            </>
+          ) : !setup ? (
+            <>
+              <Settings2 size={16} /> Set up machine
+            </>
           ) : isEditing ? (
             <>
               <Check size={16} /> Save setup
@@ -2235,95 +2667,12 @@ function SetupPanel({
         </button>
       </div>
       <section className="setup-page-grid">
-        <article className="setup-detail-card">
+        <article className="setup-detail-card setup-machine-card">
           <span className="setup-detail-icon">
             <Coffee size={22} />
           </span>
           <div className="card-eyebrow">ESPRESSO MACHINE</div>
-          {isEditing ? (
-            <input
-              className="setup-title-input"
-              aria-label="Espresso machine"
-              value={setup.machine}
-              onChange={(event) =>
-                setSetup((current) => ({ ...current, machine: event.target.value }))
-              }
-            />
-          ) : (
-            <h2>{setup.machine}</h2>
-          )}
-          {isEditing ? (
-            <input
-              className="setup-subtitle-input"
-              aria-label="Machine details"
-              value={setup.machineDetails}
-              onChange={(event) =>
-                setSetup((current) => ({
-                  ...current,
-                  machineDetails: event.target.value,
-                }))
-              }
-            />
-          ) : (
-            <p>{setup.machineDetails}</p>
-          )}
-          <div className="setup-specs">
-            {field('basketSize', 'Basket size')}
-            {field('temperature', 'Water temperature')}
-            {field('preinfusion', 'Pre-infusion')}
-          </div>
-        </article>
-
-        <article className="setup-detail-card">
-          <span className="setup-detail-icon">
-            <Gauge size={22} />
-          </span>
-          <div className="card-eyebrow">COFFEE GRINDER</div>
-          {isEditing ? (
-            <input
-              className="setup-title-input"
-              aria-label="Coffee grinder"
-              value={setup.grinder}
-              onChange={(event) =>
-                setSetup((current) => ({ ...current, grinder: event.target.value }))
-              }
-            />
-          ) : (
-            <h2>{setup.grinder}</h2>
-          )}
-          {isEditing ? (
-            <input
-              className="setup-subtitle-input"
-              aria-label="Grinder details"
-              value={setup.grinderDetails}
-              onChange={(event) =>
-                setSetup((current) => ({
-                  ...current,
-                  grinderDetails: event.target.value,
-                }))
-              }
-            />
-          ) : (
-            <p>{setup.grinderDetails}</p>
-          )}
-          <div className="setup-specs">
-            {field('grindRange', 'Your espresso range')}
-            {field('dialDirection', 'Dial direction')}
-            {field('doseRange', 'Typical dose')}
-          </div>
-        </article>
-
-        <article className="setup-detail-card water-card">
-          <span className="setup-detail-icon">
-            <Droplets size={22} />
-          </span>
-          <div className="card-eyebrow">WATER & BASKET</div>
-          <h2>Dialed-in details</h2>
-          <p>A few more things that shape your shot.</p>
-          <div className="setup-specs">
-            {field('water', 'Water')}
-            {field('basket', 'Basket')}
-          </div>
+          {bodyContent}
         </article>
       </section>
     </>

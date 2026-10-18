@@ -391,3 +391,49 @@ h1,h2,h3,p { margin-top: 0; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; } }
 @layer base { * { @apply border-border outline-ring/50; } }
 body { @apply bg-background text-foreground; }
+
+/* Machine setup: one card holding all machine + grinding settings */
+.setup-machine-card { grid-column: span 2; }
+.setup-machine-card > .primary-button { margin-top: 6px; }
+.setup-input-pair { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.setup-input-pair small { color: #99958c; font-size: 8.5px; white-space: nowrap; }
+.setup-input-pair .setup-edit-input { width: 74px; text-align: right; }
+.setup-input-pair input[type='checkbox'] { accent-color: #59684e; width: 13px; height: 13px; }
+select.setup-edit-input { cursor: pointer; }
+.setup-edit-input::-webkit-outer-spin-button,
+.setup-edit-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.setup-edit-input[type='number'] { -moz-appearance: textfield; appearance: textfield; }
+
+/* Field hints and validation messages in forms */
+.field-hint { color: #aaa69c; font-size: 8.5px; font-weight: 400; }
+.field-error { color: #b0523c; font-size: 9px; font-weight: 600; }
+
+/* Shot log: grind slider bound to the machine's grind range */
+.grind-block { margin-top: 13px; }
+.grind-control-row { display: flex; align-items: center; gap: 12px; }
+.grind-slider { flex: 1; min-width: 0; height: 4px; accent-color: #839272; cursor: pointer; }
+.grind-number { width: 95px; flex-shrink: 0; }
+.grind-block .field-error { margin-top: 3px; }
+
+/* Guided machine setup wizard */
+.setup-wizard { width: min(100%, 470px); }
+.wizard-progress { display: flex; flex-direction: column; gap: 7px; margin-bottom: 16px; }
+.wizard-progress span { color: #99958b; font-size: 8px; font-weight: 700; letter-spacing: .9px; }
+.wizard-bars { display: flex; gap: 5px; }
+.wizard-bars i { flex: 1; height: 3px; border-radius: 2px; background: #eceae2; }
+.wizard-bars i.done { background: #8c9c7f; }
+.wizard-body { display: flex; flex-direction: column; gap: 12px; min-height: 235px; }
+.wizard-hint { margin: 0; color: #99958c; font-size: 9.5px; line-height: 1.55; }
+.wizard-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.wizard-actions { justify-content: space-between; }
+.wizard-actions .cancel-button { display: inline-flex; align-items: center; gap: 4px; }
+.wizard-step-error { margin: 10px 0 0; color: #b0523c; font-size: 9.5px; text-align: right; }
+.choice-row { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+.choice-card { border: 1px solid #e7e4dc; border-radius: 8px; background: #fff; color: #77746b; padding: 13px 11px; font-size: 10.5px; font-weight: 600; text-align: left; cursor: pointer; transition: background .15s ease, border-color .15s ease; }
+.choice-card.selected { color: #53634a; border-color: #b9c4ae; background: #edf0e9; }
+
+@media (max-width: 600px) {
+  .setup-machine-card { grid-column: auto; }
+  .grind-control-row { flex-wrap: wrap; }
+  .grind-slider { flex-basis: 100%; }
+}
