@@ -127,27 +127,33 @@ insert into public.beans (id, user_id, name, roaster, roast_date, roast_level, p
   ('dddddddd-dddd-4ddd-8ddd-ddddddddddd3', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
    'Night Shift Decaf', 'Sample Coffee', date '2026-09-28', 'dark', 'swiss water', 'Colombia');
 
--- 5. Shots -- mix of relation-based and direct bean_name style (both are
---    supported by the current app schema).
+-- 5. Shots -- mix of relation-based (bean_id + denormalized names, the state
+--    the backfill migration produces) and direct bean_name style (legacy
+--    shots with no catalog row); both are supported by the app.
 insert into public.shots (
   id, user_id, bean_id, grinder_id, machine_id,
+  bean_name, roaster,
   grind_setting, dose_grams, yield_grams, duration_seconds,
   temp_celsius, pressure_bar, taste_balance, rating, notes
 ) values
   ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
    'dddddddd-dddd-4ddd-8ddd-ddddddddddd1', 'cccccccc-cccc-4ccc-8ccc-ccccccccccc2',
    'cccccccc-cccc-4ccc-8ccc-ccccccccccc1',
+   'Guji Highlands', 'Test Roastery',
    18.0, 18.0, 36.0, 28.5, 93.0, 9.0, 78, 5, 'Baseline: sweet, clean, citrus finish.'),
   ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee2', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
    'dddddddd-dddd-4ddd-8ddd-ddddddddddd1', 'cccccccc-cccc-4ccc-8ccc-ccccccccccc2',
    'cccccccc-cccc-4ccc-8ccc-ccccccccccc1',
+   'Guji Highlands', 'Test Roastery',
    17.5, 18.0, 40.0, 31.0, 94.0, 9.0, 65, 4, 'Sour, upped grind one click next time.'),
   ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee3', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
    'dddddddd-dddd-4ddd-8ddd-ddddddddddd2', 'cccccccc-cccc-4ccc-8ccc-ccccccccccc2',
    'cccccccc-cccc-4ccc-8ccc-ccccccccccc1',
+   'Fazenda Esperanca', 'Test Roastery',
    18.5, 18.0, 34.0, 27.0, 92.0, 9.0, 82, 5, null),
   ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee4', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
    'dddddddd-dddd-4ddd-8ddd-ddddddddddd3', null, 'cccccccc-cccc-4ccc-8ccc-ccccccccccc4',
+   'Night Shift Decaf', 'Sample Coffee',
    14.0, 18.0, 36.0, 30.0, 91.0, 9.0, 60, 3, 'Decaf is hard. Chocolatey though.');
 
 insert into public.shots (

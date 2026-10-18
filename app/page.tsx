@@ -13,6 +13,7 @@ import {
   LogOut,
   Menu,
   MoreHorizontal,
+  Pencil,
   Plus,
   Search,
   Settings2,
@@ -49,6 +50,10 @@ import type { User } from '@supabase/supabase-js'
 
 export type Shot = {
   id: string
+  // Link to the `beans` row this shot was logged against. When set, the bean
+  // and roaster shown follow the catalog row (source of truth); when null the
+  // shot carries its own captured name until it gets adopted by an edit.
+  beanId: string | null
   bean: string
   roaster: string
   date: string
@@ -69,6 +74,10 @@ export type Shot = {
 // Pre-entered beans without any shots yet have shots === 0 and latestShot null.
 export type BeanSummary = {
   key: string
+  // The `beans` row behind this shelf entry, or null for beans that only
+  // exist on shots. Both kinds are editable — saving on a null id creates
+  // the missing row and links the shots to it.
+  id: string | null
   name: string
   roaster: string
   shots: number
@@ -159,76 +168,101 @@ function StatCard({
 
 function ShotCard({ shot, onClick }: { shot: Shot; onClick: () => void }) {
   return (
-    <button type="button" className="shot-row" onClick={onClick}>
-      <span className="shot-bean-icon">
-        <Bean size={17} />
-      </span>
-      <span className="shot-main">
-        <span className="shot-name">{shot.bean}</span>
-        <span className="shot-roaster">{shot.roaster}</span>
-      </span>
-      <span className="shot-recipe">
-        <strong>{shot.dose}g</strong>
-        <span>in</span>
-        <strong>{shot.yield}g</strong>
-        <span>out</span>
-      </span>
-      <span className="shot-time">
-        <Clock3 size={13} /> {shot.time}s
-      </span>
-      <span className="shot-rating" aria-label={`${shot.rating} out of 5 stars`}>
-        {Array.from({ length: 5 }, (_, i) => (
-          <Star
-            key={i}
-            size={12}
-            fill={i < shot.rating ? 'currentColor' : 'none'}
-          />
-        ))}
-      </span>
-      <span className="shot-date">{shot.date}</span>
-      <ChevronRight className="shot-chevron" size={16} />
-    </button>
+    <div className="shot-row">
+      <button type="button" className="shot-row-main" onClick={onClick}>
+        <span className="shot-bean-icon">
+          <Bean size={17} />
+        </span>
+        <span className="shot-cells">
+          <span className="shot-main">
+            <span className="shot-name">{shot.bean}</span>
+            <span className="shot-roaster">{shot.roaster}</span>
+          </span>
+          <span className="shot-recipe">
+            <strong>{shot.dose}g</strong>
+            <span>in</span>
+            <strong>{shot.yield}g</strong>
+            <span>out</span>
+          </span>
+          <span className="shot-time">
+            <Clock3 size={13} /> {shot.time}s
+          </span>
+          <span className="shot-rating" aria-label={`${shot.rating} out of 5 stars`}>
+            {Array.from({ length: 5 }, (_, i) => (
+              <Star
+                key={i}
+                size={12}
+                fill={i < shot.rating ? 'currentColor' : 'none'}
+              />
+            ))}
+          </span>
+          <span className="shot-date">{shot.date}</span>
+          <ChevronRight className="shot-chevron" size={16} />
+        </span>
+      </button>
+    </div>
   )
 }
 
-function BeanCard({ bean, onClick }: { bean: BeanSummary; onClick: () => void }) {
+function BeanCard({
+  bean,
+  onClick,
+  onEdit,
+}: {
+  bean: BeanSummary
+  onClick: () => void
+  onEdit: () => void
+}) {
   return (
-    <button type="button" className="shot-row" onClick={onClick}>
-      <span className="shot-bean-icon">
-        <Bean size={17} />
-      </span>
-      <span className="shot-main">
-        <span className="shot-name">{bean.name}</span>
-        <span className="shot-roaster">{bean.roaster}</span>
-      </span>
-      <span className="shot-recipe">
-        <strong>{bean.shots}</strong>
-        <span>{bean.shots === 1 ? 'shot' : 'shots'}</span>
-      </span>
-      <span className="shot-time">
-        <Settings2 size={13} /> {bean.avgGrind || '—'}
-      </span>
-      {bean.shots > 0 ? (
-        <span
-          className="shot-rating"
-          aria-label={`Average ${bean.avgRating} out of 5 stars`}
-        >
-          {Array.from({ length: 5 }, (_, i) => (
-            <Star
-              key={i}
-              size={12}
-              fill={i < Math.round(Number(bean.avgRating)) ? 'currentColor' : 'none'}
-            />
-          ))}
+    <div className="shot-row shot-row-editable">
+      <button type="button" className="shot-row-main" onClick={onClick}>
+        <span className="shot-bean-icon">
+          <Bean size={17} />
         </span>
-      ) : (
-        <span className="shot-rating" aria-label="No ratings yet">
-          —
+        <span className="shot-cells">
+          <span className="shot-main">
+            <span className="shot-name">{bean.name}</span>
+            <span className="shot-roaster">{bean.roaster}</span>
+          </span>
+          <span className="shot-recipe">
+            <strong>{bean.shots}</strong>
+            <span>{bean.shots === 1 ? 'shot' : 'shots'}</span>
+          </span>
+          <span className="shot-time">
+            <Settings2 size={13} /> {bean.avgGrind || '—'}
+          </span>
+          {bean.shots > 0 ? (
+            <span
+              className="shot-rating"
+              aria-label={`Average ${bean.avgRating} out of 5 stars`}
+            >
+              {Array.from({ length: 5 }, (_, i) => (
+                <Star
+                  key={i}
+                  size={12}
+                  fill={i < Math.round(Number(bean.avgRating)) ? 'currentColor' : 'none'}
+                />
+              ))}
+            </span>
+          ) : (
+            <span className="shot-rating" aria-label="No ratings yet">
+              —
+            </span>
+          )}
+          <span className="shot-date">{bean.lastDate || 'Not yet brewed'}</span>
+          <ChevronRight className="shot-chevron" size={16} />
         </span>
-      )}
-      <span className="shot-date">{bean.lastDate || 'Not yet brewed'}</span>
-      <ChevronRight className="shot-chevron" size={16} />
-    </button>
+      </button>
+      <button
+        type="button"
+        className="row-edit"
+        title={`Edit ${bean.name}`}
+        aria-label={`Edit ${bean.name}`}
+        onClick={onEdit}
+      >
+        <Pencil size={13} />
+      </button>
+    </div>
   )
 }
 
@@ -266,6 +300,18 @@ export default function Page() {
   const [newBeanName, setNewBeanName] = useState('')
   const [newBeanRoaster, setNewBeanRoaster] = useState('')
   const [savingBean, setSavingBean] = useState(false)
+
+  // Bean section: "Edit bean" dialog (null = closed). Holds the row as it was
+  // when the dialog opened — for shot-only beans `id` is null, so the save
+  // path creates the missing `beans` row and links the shots to it.
+  const [editingBean, setEditingBean] = useState<{
+    id: string | null
+    name: string
+    roaster: string
+  } | null>(null)
+  const [editBeanName, setEditBeanName] = useState('')
+  const [editBeanRoaster, setEditBeanRoaster] = useState('')
+  const [savingBeanEdit, setSavingBeanEdit] = useState(false)
 
   // Shot dialog bean selection: '' (unset) | NEW_BEAN_CHOICE | `${name}|${roaster}`
   const [beanChoice, setBeanChoice] = useState('')
@@ -328,32 +374,45 @@ export default function Page() {
         return
       }
 
-      const { data, error } = await supabase
-        .from('shots')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false })
-
+      const [shotsRes, catalogRes] = await Promise.all([
+        supabase
+          .from('shots')
+          .select('*')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false }),
+        supabase.from('beans').select('id, name, roaster').eq('user_id', userId),
+      ])
+      const { data, error } = shotsRes
       if (error) throw error
+      if (catalogRes.error) throw catalogRes.error
+      const catalogById = new Map(
+        (catalogRes.data ?? []).map((b) => [b.id, b] as const)
+      )
 
       if (data) {
-        const mapped: Shot[] = data.map((item: any) => ({
-          id: item.id,
-          bean: item.bean_name || 'Espresso Roast',
-          roaster: item.roaster || 'Specialty Roaster',
-          date: formatDate(item.created_at),
-          dose: Number(item.dose_grams) || 18,
-          yield: Number(item.yield_grams) || 36,
-          grind: Number(item.grind_setting) || 2.5,
-          time: Number(item.duration_seconds) || 28,
-          rating: Number(item.rating) || 4,
-          flavors: Array.isArray(item.flavors) ? item.flavors : [],
-          acidity: Number(item.acidity) || 3,
-          bitterness: Number(item.bitterness) || 2,
-          notes: item.notes || '',
-          temp: shotTemperatureFromRow(item),
-          created_at: item.created_at,
-        }))
+        const mapped: Shot[] = data.map((item: any) => {
+          // Linked shots follow their catalog row — renaming the bean is
+          // reflected here on the next fetch without touching shot history.
+          const linked = item.bean_id ? catalogById.get(item.bean_id) : undefined
+          return {
+            id: item.id,
+            beanId: item.bean_id ?? null,
+            bean: linked?.name || item.bean_name || 'Espresso Roast',
+            roaster: linked?.roaster || item.roaster || 'Specialty Roaster',
+            date: formatDate(item.created_at),
+            dose: Number(item.dose_grams) || 18,
+            yield: Number(item.yield_grams) || 36,
+            grind: Number(item.grind_setting) || 2.5,
+            time: Number(item.duration_seconds) || 28,
+            rating: Number(item.rating) || 4,
+            flavors: Array.isArray(item.flavors) ? item.flavors : [],
+            acidity: Number(item.acidity) || 3,
+            bitterness: Number(item.bitterness) || 2,
+            notes: item.notes || '',
+            temp: shotTemperatureFromRow(item),
+            created_at: item.created_at,
+          }
+        })
         setShots(mapped)
       }
     } catch (err) {
@@ -620,6 +679,7 @@ export default function Page() {
       if (data) {
         const created: Shot = {
           id: data.id,
+          beanId: data.bean_id ?? null,
           bean: data.bean_name,
           roaster: data.roaster,
           date: 'Just now',
@@ -714,6 +774,92 @@ export default function Page() {
     }
   }
 
+  function openEditBean(bean: BeanSummary) {
+    setEditingBean({ id: bean.id, name: bean.name, roaster: bean.roaster })
+    setEditBeanName(bean.name)
+    setEditBeanRoaster(bean.roaster)
+  }
+
+  // Rename a bean on the shelf. The `beans` row is the source of truth for
+  // the name: linked shots resolve through `bean_id`, so they follow the new
+  // name without their captured data being rewritten. Legacy shots that only
+  // carry the old name (bean_id still null) are adopted onto the row here.
+  // Editing a shot-only bean (editingBean.id === null) creates the row first.
+  async function saveBeanEdit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!editingBean || !user) return
+    const name = editBeanName.trim()
+    const roasterName = editBeanRoaster.trim() || 'My roaster'
+    if (!name) return
+    // Block renaming onto any other shelf entry — the catalog alone is not
+    // enough, shot-only beans live on the shelf without a `beans` row.
+    const originalKey = `${editingBean.name}|${editingBean.roaster}`
+    const newKey = `${name}|${roasterName}`
+    if (
+      newKey !== originalKey &&
+      (beanCatalog.some(
+        (b) => b.id !== editingBean.id && `${b.name}|${b.roaster}` === newKey
+      ) ||
+        beans.some((b) => `${b.name}|${b.roaster}` === newKey))
+    ) {
+      alert('This bean is already on your shelf.')
+      return
+    }
+    setSavingBeanEdit(true)
+    try {
+      let beanId = editingBean.id
+      if (beanId) {
+        const { error } = await supabase
+          .from('beans')
+          .update({ name, roaster: roasterName })
+          .eq('id', beanId)
+        if (error) throw error
+        setBeanCatalog((prev) =>
+          prev.map((b) => (b.id === beanId ? { ...b, name, roaster: roasterName } : b))
+        )
+      } else {
+        const { data: created, error } = await supabase
+          .from('beans')
+          .insert({ user_id: user.id, name, roaster: roasterName })
+          .select('id, name, roaster, created_at')
+          .single()
+        if (error) throw error
+        beanId = created.id
+        setBeanCatalog((prev) => [...prev, created])
+      }
+
+      // Keep the shot cache in step with the row: refresh names on linked
+      // shots, and adopt legacy shots captured under the old name.
+      const patch = { bean_id: beanId, bean_name: name, roaster: roasterName }
+      const linked = await supabase.from('shots').update(patch).eq('bean_id', beanId)
+      if (linked.error) throw linked.error
+      const adopted = await supabase
+        .from('shots')
+        .update(patch)
+        .is('bean_id', null)
+        .eq('bean_name', editingBean.name)
+        .eq('roaster', editingBean.roaster)
+      if (adopted.error) throw adopted.error
+
+      setShots((prev) =>
+        prev.map((s) =>
+          s.beanId === beanId ||
+          (s.beanId === null &&
+            s.bean === editingBean.name &&
+            s.roaster === editingBean.roaster)
+            ? { ...s, beanId, bean: name, roaster: roasterName }
+            : s
+        )
+      )
+      setEditingBean(null)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Please check your connection'
+      alert(`Could not update bean: ${message}`)
+    } finally {
+      setSavingBeanEdit(false)
+    }
+  }
+
   function toggleFlavor(flavor: string) {
     setSelectedFlavors((current) =>
       current.includes(flavor) ? current.filter((item) => item !== flavor) : [...current, flavor]
@@ -777,8 +923,12 @@ export default function Page() {
 
   // Unique coffees for the shelf, aggregated from shots (newest-first order),
   // so the first shot seen per bean is its most recent one. Pre-entered beans
-  // without shots are listed first.
-  const beans = useMemo(() => {
+  // without shots are listed first. Linked shots resolve through `bean_id`,
+  // so they land on their catalog entry; entries without an `id` are shot-only
+  // beans that get their row created on first edit. Deliberately not wrapped
+  // in useMemo — like `allBeans` above, manual memoization here trips
+  // react-hooks/preserve-manual-memoization on main's toolchain.
+  const beans = (() => {
     const map = new Map<string, BeanSummary>()
     beanCatalog
       .filter((b) =>
@@ -787,6 +937,7 @@ export default function Page() {
       .forEach((b) => {
         map.set(`${b.name}|${b.roaster}`, {
           key: `${b.name}|${b.roaster}`,
+          id: b.id,
           name: b.name,
           roaster: b.roaster,
           shots: 0,
@@ -814,8 +965,15 @@ export default function Page() {
           existing.latestShot = shot
         }
       } else {
+        // A catalog row can be missing here only if a bean with no linked
+        // shots was filtered out by the search — link it back so the row
+        // stays editable with its id.
+        const catalogMatch = beanCatalog.find(
+          (b) => b.name === shot.bean && b.roaster === shot.roaster
+        )
         map.set(key, {
           key,
+          id: catalogMatch ? catalogMatch.id : null,
           name: shot.bean,
           roaster: shot.roaster,
           shots: 1,
@@ -827,7 +985,7 @@ export default function Page() {
       }
     })
     return Array.from(map.values())
-  }, [filteredShots, beanCatalog, search])
+  })()
 
   const isShelf = activeNav === 'Coffee shelf'
   const displayedShots = isShelf ? [] : filteredShots
@@ -1228,6 +1386,7 @@ export default function Page() {
                         <BeanCard
                           key={bean.key}
                           bean={bean}
+                          onEdit={() => openEditBean(bean)}
                           onClick={() => {
                             if (bean.latestShot) {
                               setSelectedShot(bean.latestShot)
@@ -1787,6 +1946,85 @@ export default function Page() {
                   ) : (
                     <>
                       <Plus size={16} /> Add bean
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {/* Edit Bean Modal */}
+      {editingBean && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setEditingBean(null)
+          }}
+        >
+          <section
+            className="log-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-bean-title"
+          >
+            <div className="modal-header">
+              <div>
+                <div className="card-eyebrow">
+                  <Bean size={13} /> YOUR BEAN SHELF
+                </div>
+                <h2 id="edit-bean-title">Edit bean</h2>
+                <p>The new name applies to this bean and every shot logged with it.</p>
+              </div>
+              <button
+                className="modal-close"
+                onClick={() => setEditingBean(null)}
+                aria-label="Close dialog"
+              >
+                <X size={19} />
+              </button>
+            </div>
+            <form onSubmit={saveBeanEdit}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <label className="form-field">
+                  <span>Coffee bean</span>
+                  <input
+                    value={editBeanName}
+                    onChange={(event) => setEditBeanName(event.target.value)}
+                    placeholder="e.g. Ethiopia Guji"
+                    required
+                    autoFocus
+                  />
+                </label>
+                <label className="form-field">
+                  <span>
+                    Roaster <small>optional</small>
+                  </span>
+                  <input
+                    value={editBeanRoaster}
+                    onChange={(event) => setEditBeanRoaster(event.target.value)}
+                    placeholder="e.g. April Coffee"
+                  />
+                </label>
+              </div>
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="cancel-button"
+                  onClick={() => setEditingBean(null)}
+                >
+                  Cancel
+                </button>
+                <button className="primary-button" type="submit" disabled={savingBeanEdit}>
+                  {savingBeanEdit ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" /> Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Check size={16} /> Save changes
                     </>
                   )}
                 </button>
