@@ -129,8 +129,9 @@ project):
 
 | Email | Password |
 | :--- | :--- |
-| `staging@example.com` | `StagingTest123!` |
-| `taster@example.com` | `TasterTest123!` |
+| `staging@example.com` | `StagingTest123!` — full machine setup |
+| `taster@example.com` | `TasterTest123!` — legacy machine settings |
+| `newbie@example.com` | `NewbieTest123!` — no equipment, opens the setup wizard |
 
 ### Required GitHub Secrets:
 Set these in **Repository Settings -> Secrets and variables -> Actions**:
