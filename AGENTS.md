@@ -26,7 +26,7 @@ There is no test suite and no formatter config (no Prettier, no pre-commit).
 ## Layout
 
 - `app/` — App Router; `page.tsx` is the single main screen.
-- `components/` — feature components (`espresso-dashboard.tsx`, `espresso-dial-app.tsx`, `auth-modal.tsx`) plus shadcn primitives in `components/ui/` (configured by `components.json`).
+- `components/` — feature components plus shadcn primitives in `components/ui/` (configured by `components.json`). The ones actually wired into `app/page.tsx` are `auth-modal.tsx`, `setup-wizard.tsx`, and `machine-setup.tsx`; `espresso-dashboard.tsx` and `espresso-dial-app.tsx` are currently referenced nowhere.
 - `lib/` — `supabase.ts` (client, placeholder fallback) and `utils.ts` (`cn` class merger).
 - `supabase/` — `config.toml`, `schema.sql`, and timestamped `migrations/*.sql`.
 - `ios/`, `android/` — Capacitor native shells (`webDir: 'out'`); edit the web app, then `npm run cap:sync` — don't hand-edit their copies of the web assets.
@@ -35,4 +35,5 @@ There is no test suite and no formatter config (no Prettier, no pre-commit).
 
 - Static export only: no API routes, server actions, middleware, or other server-side Next.js features.
 - Env vars: copy `.env.example` to `.env.local` (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`); without them everything builds but Supabase calls hit placeholders and won't work.
-- CI (`.github/workflows/ci-cd.yml`): PRs run only `npm ci` + `npm run build`. Pushes to `main` additionally push `supabase/migrations/` to the cloud database (`supabase db push`) and rsync `out/` to a VM over SSH. New migrations go in `supabase/migrations/` as `YYYYMMDDHHMMSS_description.sql` and are applied automatically on merge — keep them idempotent (`if not exists`, `create or replace`, like the existing ones).
+- CI (`.github/workflows/ci-cd.yml`): PRs run only `npm ci` + `npm run build`. Pushes to `main` additionally push `supabase/migrations/` to the cloud database (`supabase db push --include-all`) and scp `out/` to a VM over SSH. New migrations go in `supabase/migrations/` as `YYYYMMDDHHMMSS_description.sql` and are applied automatically on merge — keep them idempotent (`if not exists`, `create or replace`, like the existing ones).
+- Branch names matter: pushes to `feature/**` or `bugfix/**` branches trigger `.github/workflows/staging.yml` instead of the production pipeline — it resets the shared staging Supabase database, replays all migrations, seeds it, builds against the staging credentials, and deploys `out/` to the staging path on the same VM (details and test accounts in `README.md`).
