@@ -116,7 +116,8 @@ insert into public.equipment (id, user_id, type, brand, model, nickname, setting
    'Acaia', 'Pearl', 'Scale', '{}'::jsonb),
   ('cccccccc-cccc-4ccc-8ccc-ccccccccccc4', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'machine',
    'Breville', 'Bambino Plus', 'Bambino (staging)',
-   '{"temp_celsius": 92, "pressure_bar": 9}'::jsonb);
+   '{"temp_celsius": 92, "pressure_bar": 9}'::jsonb)
+on conflict (id) do nothing;
 
 -- 4. Beans
 insert into public.beans (id, user_id, name, roaster, roast_date, roast_level, process, origin) values
@@ -125,46 +126,97 @@ insert into public.beans (id, user_id, name, roaster, roast_date, roast_level, p
   ('dddddddd-dddd-4ddd-8ddd-ddddddddddd2', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
    'Fazenda Esperanca', 'Test Roastery', date '2026-09-15', 'medium', 'natural', 'Brazil'),
   ('dddddddd-dddd-4ddd-8ddd-ddddddddddd3', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
-   'Night Shift Decaf', 'Sample Coffee', date '2026-09-28', 'dark', 'swiss water', 'Colombia');
+   'Night Shift Decaf', 'Sample Coffee', date '2026-09-28', 'dark', 'swiss water', 'Colombia'),
+  ('dddddddd-dddd-4ddd-8ddd-ddddddddddd4', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+   'Kamwangi AA', 'Test Roastery', date '2026-10-05', 'light', 'washed', 'Kenya'),
+  ('dddddddd-dddd-4ddd-8ddd-ddddddddddd5', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+   'Blue Batak', 'Test Roastery', date '2026-09-20', 'medium', 'natural', 'Indonesia'),
+  ('dddddddd-dddd-4ddd-8ddd-ddddddddddd6', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+   'El Diviso', 'Sample Coffee', date '2026-10-10', 'medium', 'anaerobic', 'Colombia')
+on conflict (id) do nothing;
 
 -- 5. Shots -- mix of relation-based (bean_id + denormalized names, the state
 --    the backfill migration produces) and direct bean_name style (legacy
---    shots with no catalog row); both are supported by the app.
+--    shots with no catalog row); both are supported by the app. Newer rows
+--    carry temp_value/temp_unit (migration 20261017000000) and a created_at
+--    spread so the journal shows a dial-in progression; legacy rows keep
+--    NULL there.
 insert into public.shots (
   id, user_id, bean_id, grinder_id, machine_id,
   bean_name, roaster,
   grind_setting, dose_grams, yield_grams, duration_seconds,
-  temp_celsius, pressure_bar, taste_balance, rating, notes
+  temp_celsius, temp_value, temp_unit, pressure_bar,
+  taste_balance, rating, notes, created_at
 ) values
   ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
    'dddddddd-dddd-4ddd-8ddd-ddddddddddd1', 'cccccccc-cccc-4ccc-8ccc-ccccccccccc2',
    'cccccccc-cccc-4ccc-8ccc-ccccccccccc1',
    'Guji Highlands', 'Test Roastery',
-   18.0, 18.0, 36.0, 28.5, 93.0, 9.0, 78, 5, 'Baseline: sweet, clean, citrus finish.'),
+   18.0, 18.0, 36.0, 28.5, 93.0, null, null, 9.0, 78, 5,
+   'Baseline: sweet, clean, citrus finish.', now()),
   ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee2', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
    'dddddddd-dddd-4ddd-8ddd-ddddddddddd1', 'cccccccc-cccc-4ccc-8ccc-ccccccccccc2',
    'cccccccc-cccc-4ccc-8ccc-ccccccccccc1',
    'Guji Highlands', 'Test Roastery',
-   17.5, 18.0, 40.0, 31.0, 94.0, 9.0, 65, 4, 'Sour, upped grind one click next time.'),
+   17.5, 18.0, 40.0, 31.0, 94.0, null, null, 9.0, 65, 4,
+   'Sour, upped grind one click next time.', now()),
   ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee3', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
    'dddddddd-dddd-4ddd-8ddd-ddddddddddd2', 'cccccccc-cccc-4ccc-8ccc-ccccccccccc2',
    'cccccccc-cccc-4ccc-8ccc-ccccccccccc1',
    'Fazenda Esperanca', 'Test Roastery',
-   18.5, 18.0, 34.0, 27.0, 92.0, 9.0, 82, 5, null),
+   18.5, 18.0, 34.0, 27.0, 92.0, null, null, 9.0, 82, 5, null, now()),
   ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee4', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
    'dddddddd-dddd-4ddd-8ddd-ddddddddddd3', null, 'cccccccc-cccc-4ccc-8ccc-ccccccccccc4',
    'Night Shift Decaf', 'Sample Coffee',
-   14.0, 18.0, 36.0, 30.0, 91.0, 9.0, 60, 3, 'Decaf is hard. Chocolatey though.');
+   14.0, 18.0, 36.0, 30.0, 91.0, null, null, 9.0, 60, 3,
+   'Decaf is hard. Chocolatey though.', now()),
+  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee6', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+   'dddddddd-dddd-4ddd-8ddd-ddddddddddd1', 'cccccccc-cccc-4ccc-8ccc-ccccccccccc2',
+   'cccccccc-cccc-4ccc-8ccc-ccccccccccc1',
+   'Guji Highlands', 'Test Roastery',
+   2.4, 18.0, 37.0, 29.0, 93.0, 93.0, 'C', 9.1, 72, 4,
+   'Dialed back in after the sour shot.', now() - interval '3 days'),
+  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee7', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+   'dddddddd-dddd-4ddd-8ddd-ddddddddddd2', 'cccccccc-cccc-4ccc-8ccc-ccccccccccc2',
+   'cccccccc-cccc-4ccc-8ccc-ccccccccccc1',
+   'Fazenda Esperanca', 'Test Roastery',
+   2.0, 18.5, 36.0, 27.5, 92.5, 92.5, 'C', 9.2, 68, 4,
+   'Nutty and syrupy.', now() - interval '5 days'),
+  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee8', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+   'dddddddd-dddd-4ddd-8ddd-ddddddddddd4', 'cccccccc-cccc-4ccc-8ccc-ccccccccccc2',
+   'cccccccc-cccc-4ccc-8ccc-ccccccccccc1',
+   'Kamwangi AA', 'Test Roastery',
+   2.6, 18.0, 38.0, 30.5, 94.0, 94.0, 'C', 9.0, 45, 3,
+   'Bright blackcurrant, still a bit sharp.', now() - interval '2 days'),
+  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee9', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+   'dddddddd-dddd-4ddd-8ddd-ddddddddddd4', 'cccccccc-cccc-4ccc-8ccc-ccccccccccc2',
+   'cccccccc-cccc-4ccc-8ccc-ccccccccccc1',
+   'Kamwangi AA', 'Test Roastery',
+   2.3, 18.0, 36.5, 28.0, 93.5, 93.5, 'C', 9.1, 58, 5,
+   'Blackcurrant and grapefruit, syrupy. Keeper.', now() - interval '1 day')
+on conflict (id) do nothing;
 
 insert into public.shots (
   id, user_id, bean_id, grinder_id, machine_id,
   bean_name, roaster, flavors, acidity, bitterness,
   grind_setting, dose_grams, yield_grams, duration_seconds,
-  temp_celsius, pressure_bar, taste_balance, rating, notes
+  temp_celsius, temp_value, temp_unit, pressure_bar,
+  taste_balance, rating, notes, created_at
 ) values
   ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee5', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
    null, 'cccccccc-cccc-4ccc-8ccc-ccccccccccc2', 'cccccccc-cccc-4ccc-8ccc-ccccccccccc1',
    'Guji Highlands', 'Test Roastery', '["citrus", "jasmine", "honey"]'::jsonb, 4, 2,
-   18.0, 18.0, 37.0, 29.0, 93.0, 9.0, 80, 5, 'Direct-style log entry.');
+   18.0, 18.0, 37.0, 29.0, 93.0, null, null, 9.0, 80, 5, 'Direct-style log entry.', now()),
+  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee10', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+   null, 'cccccccc-cccc-4ccc-8ccc-ccccccccccc2', 'cccccccc-cccc-4ccc-8ccc-ccccccccccc1',
+   'Blue Batak', 'Test Roastery', '["cedar", "dark chocolate", "earth"]'::jsonb, 3, 4,
+   2.8, 18.0, 34.5, 26.5, 92.0, 92.0, 'C', 9.3, 85, 3,
+   'Heavy and herbal; shorter ratio next time.', now() - interval '4 days'),
+  ('eeeeeeee-eeee-4eee-8eee-eeeeeeeeee11', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+   null, 'cccccccc-cccc-4ccc-8ccc-ccccccccccc2', 'cccccccc-cccc-4ccc-8ccc-ccccccccccc1',
+   'El Diviso', 'Sample Coffee', '["strawberry", "rum", "cinnamon"]'::jsonb, 5, 2,
+   3.0, 17.0, 40.0, 32.0, 95.0, 95.0, 'C', 8.8, 35, 4,
+   'Funky anaerobic - strawberry jam, thin body.', now() - interval '18 hours')
+on conflict (id) do nothing;
 
 commit;

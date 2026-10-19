@@ -76,7 +76,7 @@ jobs:
           n=$(curl -sS -H "apikey: $key" -H "Authorization: Bearer $tok" \
             "$STAGING_SUPABASE_URL/rest/v1/shots?select=id" \
             | python3 -c "import json,sys; print(len(json.load(sys.stdin)))")
-          if [ "$n" != "4" ]; then echo "::error::expected 4 seeded shots for staging user, got $n"; exit 1; fi
+          if [ "$n" != "10" ]; then echo "::error::expected 10 seeded shots for staging user, got $n"; exit 1; fi
           echo "Smoke test OK: login works, $n seeded shots visible"
 
       - name: Build web application (Staging static export)
