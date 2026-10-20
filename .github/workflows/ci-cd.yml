@@ -18,6 +18,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Validate migration filenames
+        # supabase db push records history keyed on the leading timestamp, so
+        # two migrations sharing one (e.g. copied filenames) dead-lock the
+        # production push with a schema_migrations duplicate-key error.
+        run: |
+          dupes=$(ls supabase/migrations/*.sql | xargs -n1 basename | cut -c1-14 | sort | uniq -d)
+          if [ -n "$dupes" ]; then
+            echo "::error::Duplicate migration timestamp(s): $dupes — give each file a unique YYYYMMDDHHMMSS prefix"
+            exit 1
+          fi
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:

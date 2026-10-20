@@ -1,4 +1,4 @@
--- 20261017000000_backfill_shot_bean_names.sql
+-- 20261018000000_backfill_shot_bean_names.sql
 -- `shots.bean_id` is now the source of truth: the app resolves a shot's bean
 -- and roaster through the linked `beans` row, and renames update the link.
 -- Keep the denormalized `bean_name`/`roaster` copy in sync so anything
