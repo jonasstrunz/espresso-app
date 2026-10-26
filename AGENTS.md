@@ -10,13 +10,13 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 # Espresso app
 
-Cross-platform espresso barista journal (web + iOS/Android). Next.js App Router with **static export**, React 19, Tailwind CSS v4, shadcn/ui, Supabase, Capacitor. CI uses Node 22.
+Cross-platform espresso barista journal (web + iOS/Android). Next.js 16 App Router with **static export**, React 19, Tailwind CSS v4, shadcn/ui, Supabase, Capacitor. CI uses Node 22.
 
 ## Commands (verified)
 
 - `npm install` — install dependencies.
 - `npm run dev` — dev server (default port 3000).
-- `npm run build` — static export into `out/`; this is what CI runs. Succeeds without `.env.local` because `lib/supabase.ts` falls back to placeholder Supabase values.
+- `npm run build` — static export into `out/`; this is what CI runs. Succeeds without `.env.local` because `lib/supabase.ts` falls back to placeholder Supabase values. May exit 1 on its first run with a Next.js "upgrade recommendation" — rerun the same command; it then completes with only a warning.
 - `npx tsc --noEmit` — type check. `next build` does **not** type-check (`typescript.ignoreBuildErrors: true` in `next.config.mjs`), so run this separately.
 - `npm run lint` — ESLint flat config (`eslint.config.mjs`). Note: it currently fails on `main` with pre-existing `no-explicit-any` errors and CI does not run lint — a red lint may not be your doing, but don't add new errors either.
 - `npm run cap:sync` — build + sync `out/` into `ios/`/`android/`; `cap:open:ios` / `cap:open:android` open the native IDEs.
@@ -28,12 +28,12 @@ There is no test suite and no formatter config (no Prettier, no pre-commit).
 - `app/` — App Router; `page.tsx` is the single main screen.
 - `components/` — feature components plus shadcn primitives in `components/ui/` (configured by `components.json`). The ones actually wired into `app/page.tsx` are `auth-modal.tsx`, `setup-wizard.tsx`, and `machine-setup.tsx`; `espresso-dashboard.tsx` and `espresso-dial-app.tsx` are currently referenced nowhere.
 - `lib/` — `supabase.ts` (client, placeholder fallback) and `utils.ts` (`cn` class merger).
-- `supabase/` — `config.toml`, `schema.sql`, and timestamped `migrations/*.sql`.
+- `supabase/` — `config.toml`, `schema.sql`, timestamped `migrations/*.sql`, and `staging/` (`reset.sql`, `grants.sql`, `seed.sql`, `run_sql.sh` — the scripts the staging pipeline replays against the shared staging database).
 - `ios/`, `android/` — Capacitor native shells (`webDir: 'out'`); edit the web app, then `npm run cap:sync` — don't hand-edit their copies of the web assets.
 
 ## Gotchas
 
 - Static export only: no API routes, server actions, middleware, or other server-side Next.js features.
 - Env vars: copy `.env.example` to `.env.local` (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`); without them everything builds but Supabase calls hit placeholders and won't work.
-- CI (`.github/workflows/ci-cd.yml`): PRs run only `npm ci` + `npm run build`. Pushes to `main` additionally push `supabase/migrations/` to the cloud database (`supabase db push --include-all`) and scp `out/` to a VM over SSH. New migrations go in `supabase/migrations/` as `YYYYMMDDHHMMSS_description.sql` and are applied automatically on merge — keep them idempotent (`if not exists`, `create or replace`, like the existing ones).
+- CI (`.github/workflows/ci-cd.yml`): PRs run a migration-filename check plus `npm ci` + `npm run build` (no lint, no tsc). Pushes to `main` additionally push `supabase/migrations/` to the cloud database (`supabase db push --include-all`) and scp `out/` to a VM over SSH. New migrations go in `supabase/migrations/` as `YYYYMMDDHHMMSS_description.sql` — the timestamp prefix must be unique across files, or CI fails (duplicate prefixes dead-lock `supabase db push` with a `schema_migrations` duplicate-key error) — and are applied automatically on merge; keep them idempotent (`if not exists`, `create or replace`, like the existing ones).
 - Branch names matter: pushes to `feature/**` or `bugfix/**` branches trigger `.github/workflows/staging.yml` instead of the production pipeline — it resets the shared staging Supabase database, replays all migrations, seeds it, builds against the staging credentials, and deploys `out/` to the staging path on the same VM (details and test accounts in `README.md`).
